@@ -5014,15 +5014,17 @@ def login_redirect(request):
     
     user = request.user
     
-    # Superusers go to admin
-    if user.is_superuser or user.is_staff:
+    # Superusers always go to admin dashboard
+    if user.is_superuser:
         return redirect('admin_dashboard_index')
-    
-    # Check groups and redirect accordingly
+
+    # Group-based redirects
     if user.groups.filter(name='Production Team').exists():
         return redirect('production2_dashboard')
     elif user.groups.filter(name='Account Manager').exists():
         return redirect('dashboard')
+    elif user.groups.filter(name='Admin').exists() or user.is_staff:
+        return redirect('admin_dashboard_index')
     else:
         from django.shortcuts import render
         return render(request, 'no_group_error.html', {
@@ -12049,6 +12051,49 @@ def vendor_portal_spa(request):
         'vendor': vendor,
         'vendor_name': vendor.name,
         'user': request.user
+    })
+
+
+def vendor_invite_accept(request, token):
+    company_name = getattr(settings, 'COMPANY_NAME', 'PrintDuka')
+    user_id = cache.get(f'vendor_invite_{token}')
+
+    if not user_id:
+        return render(request, 'vendor/vendor_invite_accept.html', {
+            'company_name': company_name,
+            'valid': False,
+        })
+
+    user = get_object_or_404(User, id=user_id)
+    vendor = getattr(user, 'vendor_profile', None)
+    vendor_name = vendor.name if vendor else 'Vendor'
+    contact_person = vendor.contact_person if vendor and vendor.contact_person else vendor_name
+
+    if request.method == 'POST':
+        password = request.POST.get('password', '')
+        password_confirm = request.POST.get('password_confirm', '')
+
+        if not password or password != password_confirm:
+            messages.error(request, 'Passwords do not match.')
+        else:
+            try:
+                validate_password(password, user=user)
+            except ValidationError as exc:
+                messages.error(request, ' '.join(exc.messages))
+            else:
+                user.set_password(password)
+                user.is_active = True
+                user.save()
+                cache.delete(f'vendor_invite_{token}')
+                login(request, user)
+                messages.success(request, 'Your account is active. Welcome to the vendor portal.')
+                return redirect('vendor_portal')
+
+    return render(request, 'vendor/vendor_invite_accept.html', {
+        'company_name': company_name,
+        'valid': True,
+        'vendor_name': vendor_name,
+        'contact_person': contact_person,
     })
 
 

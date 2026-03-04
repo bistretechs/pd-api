@@ -1258,51 +1258,6 @@ class VendorViewSet(viewsets.ModelViewSet):
         })
 
 
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-
-class LPOViewSet(viewsets.ModelViewSet):
-    queryset = LPO.objects.select_related("client", "quote", "created_by").all()
-    serializer_class = LPOSerializer
-    permission_classes = [IsAuthenticated, IsAdmin | IsAccountManager]
-    filterset_fields = ["status", "client", "quote"]
-    search_fields = ["lpo_number", "terms_and_conditions"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
-
-class PaymentViewSet(viewsets.ModelViewSet):
-    queryset = Payment.objects.select_related("lpo", "recorded_by").all()
-    serializer_class = PaymentSerializer
-    permission_classes = [IsAuthenticated, IsAdmin | IsAccountManager]
-    filterset_fields = ["status", "payment_method", "lpo"]
-    search_fields = ["reference_number"]
-    ordering_fields = ["payment_date", "amount"]
-
-
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
 @method_decorator(name='create', decorator=swagger_auto_schema(tags=['System & Configuration']))
 @method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
@@ -2084,45 +2039,6 @@ class QCInspectionViewSet(viewsets.ModelViewSet):
         # If QC is completed and has a vendor, recalculate VPS
         if instance.vendor and instance.status in ['passed', 'failed']:
             instance.vendor.calculate_vps()
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Production Team']))
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Production Team']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Production Team']))
-
-class DeliveryViewSet(viewsets.ModelViewSet):
-    queryset = Delivery.objects.select_related("job", "qc_inspection", "handoff_confirmed_by", "created_by").all()
-    serializer_class = DeliverySerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin | IsAccountManager]
-    filterset_fields = ["job", "status", "staging_location"]
-    
-    def perform_update(self, serializer):
-        """Auto-recalculate VPS when delivery is completed"""
-        instance = serializer.save()
-        
-        # If delivery is completed, check vendor stages and recalculate VPS
-        if instance.status == 'completed' and instance.job:
-            # Get vendor stages for this job
-            vendor_stages = JobVendorStage.objects.filter(
-                job=instance.job,
-                status='completed'
-            )
-            # Recalculate VPS for all vendors involved
-            vendors_updated = set()
-            for stage in vendor_stages:
-                if stage.vendor and stage.vendor.id not in vendors_updated:
-                    stage.vendor.calculate_vps()
-                    vendors_updated.add(stage.vendor.id)
 
 
 class QuoteAttachmentViewSet(viewsets.ModelViewSet):

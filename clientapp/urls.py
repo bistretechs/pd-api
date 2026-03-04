@@ -517,6 +517,7 @@ path('delivery/handoff/<int:job_id>/', views.delivery_handoff, name='delivery_ha
     # ==================== VENDOR PORTAL ====================
     # Vendor Portal URLs - Main SPA Entry Point
     path('vendor/', views.vendor_portal_spa, name='vendor_portal'),
+    path('vendor/invite/<str:token>/', views.vendor_invite_accept, name='vendor_invite_accept'),
     
     # Individual vendor endpoints (backward compatibility)
     path('vendor/dashboard/', views.vendor_dashboard, name='vendor_dashboard'),

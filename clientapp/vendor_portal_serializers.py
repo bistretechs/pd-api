@@ -29,6 +29,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = VendorInvoice
         fields = '__all__'
+        ref_name = 'VendorInvoiceVendor'
 
 class PurchaseOrderProofSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
@@ -37,6 +38,7 @@ class PurchaseOrderProofSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseOrderProof
         fields = '__all__'
+        ref_name = 'PurchaseOrderProofVendor'
 
 class PurchaseOrderIssueSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
@@ -45,6 +47,7 @@ class PurchaseOrderIssueSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseOrderIssue
         fields = '__all__'
+        ref_name = 'PurchaseOrderIssueVendor'
 
 class PurchaseOrderNoteSerializer(serializers.ModelSerializer):
     sender_name = serializers.ReadOnlyField(source='sender.get_full_name')
@@ -53,6 +56,7 @@ class PurchaseOrderNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseOrderNote
         fields = '__all__'
+        ref_name = 'PurchaseOrderNoteVendor'
 
 class MaterialSubstitutionRequestSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
@@ -60,6 +64,7 @@ class MaterialSubstitutionRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = MaterialSubstitutionRequest
         fields = '__all__'
+        ref_name = 'MaterialSubstitutionRequestVendor'
 
 class VendorPerformanceSerializer(serializers.Serializer):
     overall_score = serializers.IntegerField()

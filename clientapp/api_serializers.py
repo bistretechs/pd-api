@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import User, Group, Permission
 
 from .models import (
     Lead,
@@ -241,10 +241,9 @@ class ProductPricingSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'pricing_model', 'base_cost', 'price_display', 'default_margin',
             'minimum_margin', 'minimum_order_value', 'tier_process', 'formula_process',
-            'return_margin', 'lead_time_value', 'lead_time_unit', 'production_method',
-            'primary_vendor', 'created_at', 'updated_at'
+            'return_margin', 'production_method', 'rush_lead_time_value', 'rush_lead_time_unit'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id']
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -268,11 +267,11 @@ class ProductSEOSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductSEO
         fields = [
-            'id', 'meta_title', 'meta_description', 'keywords',
-            'canonical_url', 'og_image', 'og_title', 'og_description',
-            'schema_markup', 'created_at', 'updated_at'
+            'id', 'meta_title', 'meta_description', 'slug', 'auto_generate_slug',
+            'focus_keyword', 'additional_keywords', 'show_price', 
+            'price_display_format', 'show_stock_status'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'slug']
     
     def validate_meta_title(self, value):
         """Meta title must be max 60 characters"""
@@ -347,8 +346,8 @@ class ProductApprovalRequestSerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     """Complete Product serializer with nested relationships"""
-    pricing = ProductPricingSerializer(read_only=False, required=False)
-    seo = ProductSEOSerializer(read_only=False, required=False)
+    pricing = ProductPricingSerializer(read_only=True)
+    seo = ProductSEOSerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
     videos = ProductVideoSerializer(many=True, read_only=True)
     
@@ -571,18 +570,29 @@ class JobSerializer(serializers.ModelSerializer):
 
 
 class VendorSerializer(serializers.ModelSerializer):
+    user_is_active = serializers.SerializerMethodField()
+
+    def get_user_is_active(self, obj):
+        if obj.user:
+            return obj.user.is_active
+        return None
+
     class Meta:
         model = Vendor
         fields = "__all__"
 
 
 class LPOSerializer(serializers.ModelSerializer):
+    client_name = serializers.CharField(source="client.name", read_only=True, allow_null=True)
+    quote_id = serializers.CharField(source="quote.quote_id", read_only=True, allow_null=True)
     class Meta:
         model = LPO
         fields = "__all__"
 
 
 class PaymentSerializer(serializers.ModelSerializer):
+    lpo_number = serializers.CharField(source="lpo.lpo_number", read_only=True, allow_null=True)
+    client_name = serializers.CharField(source="lpo.client.name", read_only=True, allow_null=True)
     class Meta:
         model = Payment
         fields = "__all__"
@@ -684,12 +694,6 @@ class ProductDownloadableFileSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class ProductSEOSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProductSEO
-        fields = "__all__"
-
-
 class ProductReviewSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductReviewSettings
@@ -759,12 +763,23 @@ class VendorQuoteSerializer(serializers.ModelSerializer):
 
 
 class QCInspectionSerializer(serializers.ModelSerializer):
+    job_number = serializers.CharField(source="job.job_number", read_only=True, allow_null=True)
+    client_name = serializers.CharField(source="job.client.name", read_only=True, allow_null=True)
+    quote_id = serializers.CharField(source="job.quote.quote_id", read_only=True, allow_null=True)
+    vendor_name = serializers.CharField(source="vendor.name", read_only=True, allow_null=True)
+    inspector_name = serializers.CharField(source="inspector.get_full_name", read_only=True, allow_null=True)
+
     class Meta:
         model = QCInspection
         fields = "__all__"
 
 
 class DeliverySerializer(serializers.ModelSerializer):
+    job_number = serializers.CharField(source="job.job_number", read_only=True, allow_null=True)
+    client_name = serializers.CharField(source="job.client.name", read_only=True, allow_null=True)
+    quote_id = serializers.CharField(source="job.quote.quote_id", read_only=True, allow_null=True)
+    delivery_method = serializers.CharField(source="job.delivery_method", read_only=True, allow_null=True)
+    scheduled_delivery_date = serializers.DateField(source="job.delivery_date", read_only=True, allow_null=True)
     class Meta:
         model = Delivery
         fields = "__all__"
@@ -813,16 +828,55 @@ class ProductionUpdateSerializer(serializers.ModelSerializer):
 
 # ===== User / Group Serializers =====
 
-class UserSerializer(serializers.ModelSerializer):
+class PermissionSerializer(serializers.ModelSerializer):
+    content_type = serializers.SerializerMethodField()
+    
     class Meta:
-        model = User
-        fields = ["id", "username", "email", "first_name", "last_name", "is_active", "is_superuser"]
+        model = Permission
+        fields = ["id", "name", "codename", "content_type"]
+    
+    def get_content_type(self, obj):
+        return {
+            "app_label": obj.content_type.app_label,
+            "model": obj.content_type.model
+        }
 
 
 class GroupSerializer(serializers.ModelSerializer):
+    user_count = serializers.IntegerField(read_only=True, required=False)
+    permissions = PermissionSerializer(many=True, read_only=True)
+    permission_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Permission.objects.all(),
+        source='permissions',
+        write_only=True,
+        required=False
+    )
+    
     class Meta:
         model = Group
-        fields = ["id", "name"]
+        fields = ["id", "name", "user_count", "permissions", "permission_ids"]
+
+
+class UserSerializer(serializers.ModelSerializer):
+    groups = GroupSerializer(many=True, read_only=True)
+    group_ids = serializers.PrimaryKeyRelatedField(
+        many=True, 
+        queryset=Group.objects.all(), 
+        source='groups', 
+        write_only=True,
+        required=False
+    )
+    
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "first_name", "last_name", "is_active", "is_superuser", "groups", "group_ids", "date_joined", "last_login"]
+
+
+class SystemSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemSetting
+        fields = ["key", "value", "description", "is_public"]
 
 
 # ============================================================================
@@ -1072,6 +1126,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['invoice_number', 'tax_amount', 'total_amount', 
                            'submitted_at', 'approved_at', 'paid_at', 'created_at', 'updated_at']
+        ref_name = 'VendorInvoiceAPI'
 
 
 class PurchaseOrderProofSerializer(serializers.ModelSerializer):
@@ -1087,6 +1142,7 @@ class PurchaseOrderProofSerializer(serializers.ModelSerializer):
             'reviewed_by_name', 'reviewed_at'
         ]
         read_only_fields = ['submitted_at']
+        ref_name = 'PurchaseOrderProofAPI'
 
 
 class PurchaseOrderIssueSerializer(serializers.ModelSerializer):
@@ -1100,6 +1156,7 @@ class PurchaseOrderIssueSerializer(serializers.ModelSerializer):
             'status', 'created_at'
         ]
         read_only_fields = ['created_at']
+        ref_name = 'PurchaseOrderIssueAPI'
 
 
 class PurchaseOrderNoteSerializer(serializers.ModelSerializer):
@@ -1113,6 +1170,7 @@ class PurchaseOrderNoteSerializer(serializers.ModelSerializer):
             'id', 'purchase_order', 'po_number', 'sender', 'sender_name',
             'category', 'message', 'created_at'
         ]
+        ref_name = 'PurchaseOrderNoteAPI'
         read_only_fields = ['created_at']
 
 
@@ -1128,6 +1186,7 @@ class MaterialSubstitutionRequestSerializer(serializers.ModelSerializer):
             'justification', 'status', 'created_at'
         ]
         read_only_fields = ['created_at']
+        ref_name = 'MaterialSubstitutionRequestAPI'
 
 
 class VendorPerformanceSerializer(serializers.Serializer):
@@ -1652,17 +1711,15 @@ class VendorCapacityAlertSerializer(serializers.ModelSerializer):
     vendor_name = serializers.CharField(source='vendor.name', read_only=True)
     purchase_order_number = serializers.CharField(source='purchase_order.po_number', read_only=True, allow_null=True)
     acknowledged_by_name = serializers.CharField(source='acknowledged_by.get_full_name', read_only=True, allow_null=True)
-    resolved_by_name = serializers.CharField(source='resolved_by.get_full_name', read_only=True, allow_null=True)
     
     class Meta:
         model = VendorCapacityAlert
         fields = [
             'id', 'vendor', 'vendor_name', 'alert_type', 'status', 'purchase_order',
             'purchase_order_number', 'message', 'severity', 'acknowledged_by',
-            'acknowledged_by_name', 'acknowledged_at', 'resolved_by', 'resolved_by_name',
-            'resolved_at', 'created_at', 'updated_at'
+            'acknowledged_by_name', 'acknowledged_at', 'resolved_at', 'created_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at']
 
 
 class POSMilestoneSerializer(serializers.ModelSerializer):

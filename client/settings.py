@@ -39,7 +39,7 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', default=[], cast=Csv())
 # Application definition
 
 INSTALLED_APPS = [
-    'jazzmin', #might use it in the future
+    # 'jazzmin', #might use it in the future - DISABLED to use native Django admin
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -157,9 +157,9 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage' 
 
 
 # Login settings
-LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = 'login'
+LOGIN_URL = '/accounts/login/'
+LOGIN_REDIRECT_URL = '/login-redirect/'
+LOGOUT_REDIRECT_URL = '/accounts/login/'
 
 # QuickBooks Integration
 load_dotenv()
@@ -221,6 +221,16 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
+# Session cookie settings for cross-origin
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_DOMAIN = None  # Allow localhost
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 days
+
+# CSRF cookie settings for cross-origin  
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  # JavaScript needs to read for fetch requests
+
 # File upload settings
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
@@ -241,10 +251,18 @@ if not DEBUG:
     # prevention of csrf errors
     CSRF_TRUSTED_ORIGINS = ['https://client2-o4ay.onrender.com'] 
 else:
-    #No HSTS forcing
+    # Development settings
     SECURE_HSTS_SECONDS = 0
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    CSRF_TRUSTED_ORIGINS = [
+        'http://localhost:8000', 
+        'http://127.0.0.1:8000',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+    ]
     
 # Email settings - Using Mailgun SMTP (Render-compatible, free tier)
 # Render-friendly alternative to SendGrid
@@ -396,6 +414,9 @@ SALES_TEAM_EMAIL = config('SALES_TEAM_EMAIL', default='sales@printduka.com')
 
 # Storefront URL
 STOREFRONT_URL = config('STOREFRONT_URL', default='http://localhost:3000')
+
+# Staff Portal URL
+STAFF_PORTAL_URL = config('STAFF_PORTAL_URL', default='http://localhost:3000/staff')
 
 # Messaging Configuration (Africastalking for SMS/WhatsApp)
 AFRICASTALKING_API_KEY = config('AFRICASTALKING_API_KEY', default='')

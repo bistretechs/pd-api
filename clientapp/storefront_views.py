@@ -740,9 +740,12 @@ class StorefrontMessageViewSet(viewsets.ModelViewSet):
             )
         else:
             # Non-AM users can only see their own messages
-            queryset = StorefrontMessage.objects.filter(
-                customer_email=self.request.user.email
-            )
+            if getattr(self, 'swagger_fake_view', False):
+                queryset = StorefrontMessage.objects.none()
+            else:
+                queryset = StorefrontMessage.objects.filter(
+                    customer_email=self.request.user.email
+                )
         
         return queryset.order_by('-created_at')
     

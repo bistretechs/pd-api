@@ -1,7 +1,12 @@
 from django.utils import timezone
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import User, Group, Permission
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, F
+from django.core.cache import cache
+from django.core.mail import send_mail
+from django.conf import settings
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 from rest_framework import viewsets, status, decorators, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -15,6 +20,7 @@ from django.utils.decorators import method_decorator
 from .quickbooks_services import QuickBooksService, QuickBooksAuthService
 import logging
 import json
+import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +243,7 @@ from .api_serializers import (
     ProductionUpdateSerializer,
     UserSerializer,
     GroupSerializer,
+    PermissionSerializer,
 
     ProductRuleSerializer,
     TimelineEventSerializer,
@@ -1112,6 +1119,9 @@ class ProductApprovalRequestViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter approval requests based on user role"""
+        if getattr(self, 'swagger_fake_view', False):
+            return ProductApprovalRequest.objects.none()
+        
         user = self.request.user
         queryset = ProductApprovalRequest.objects.all()
         
@@ -2260,6 +2270,82 @@ class VendorViewSet(viewsets.ModelViewSet):
             'status': 'OK',
         })
 
+    @decorators.action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsProductionTeam | IsAdmin | IsAccountManager])
+    def invite(self, request, pk=None):
+        """Create/resend vendor portal invite for a vendor contact."""
+        vendor = self.get_object()
+
+        if not vendor.email:
+            return Response(
+                {"detail": "Vendor email is required before sending an invite."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = vendor.user
+        user_created = False
+
+        if user is None:
+            username_base = vendor.email.split("@")[0] if "@" in vendor.email else f"vendor{vendor.id}"
+            username = username_base
+            counter = 1
+
+            while User.objects.filter(username=username).exists():
+                username = f"{username_base}{counter}"
+                counter += 1
+
+            first_name = (vendor.contact_person or "").strip().split(" ")[0] if vendor.contact_person else vendor.name[:50]
+            user = User.objects.create(
+                username=username,
+                email=vendor.email,
+                first_name=first_name,
+                is_active=False,
+                is_staff=False,
+            )
+            vendor.user = user
+            vendor.save(update_fields=["user", "updated_at"])
+            user_created = True
+        else:
+            user.email = vendor.email
+            user.is_active = False
+            user.is_staff = False
+            user.save(update_fields=["email", "is_active", "is_staff"])
+
+        invite_token = secrets.token_urlsafe(32)
+        cache.set(f"vendor_invite_{invite_token}", user.id, 172800)
+
+        invite_url = request.build_absolute_uri(f"/vendor/invite/{invite_token}/")
+        send_invite = request.data.get("send_invite", True)
+        email_sent = False
+
+        if send_invite:
+            try:
+                send_mail(
+                    subject="Vendor Portal Invitation",
+                    message=(
+                        f"Hello {vendor.contact_person or vendor.name},\n\n"
+                        f"You have been invited to access the vendor portal.\n"
+                        f"Set your password and activate your account here:\n{invite_url}\n\n"
+                        "This link expires in 48 hours."
+                    ),
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@printduka.com"),
+                    recipient_list=[vendor.email],
+                    fail_silently=False,
+                )
+                email_sent = True
+            except Exception as exc:
+                logger.warning("Vendor invite email failed for vendor %s: %s", vendor.id, exc)
+
+        return Response(
+            {
+                "detail": "Vendor invite prepared successfully.",
+                "vendor_id": vendor.id,
+                "user_created": user_created,
+                "email_sent": email_sent,
+                "invite_url": invite_url,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
 @method_decorator(name='create', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
@@ -2312,8 +2398,11 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter POs based on user role"""
-        user = self.request.user
         queryset = super().get_queryset()
+        if getattr(self, 'swagger_fake_view', False):
+            return queryset.none()
+        
+        user = self.request.user
         
         # Vendors can only see their own POs
         try:
@@ -2520,8 +2609,11 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter invoices based on user role"""
-        user = self.request.user
         queryset = super().get_queryset()
+        if getattr(self, 'swagger_fake_view', False):
+            return queryset.none()
+        
+        user = self.request.user
         
         # If user is a vendor, filter to their invoices only
         try:
@@ -2934,16 +3026,65 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     ordering_fields = ["created_at"]
 
 
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['System & Configuration']))
-class SystemSettingViewSet(viewsets.ModelViewSet):
-    queryset = SystemSetting.objects.all()
-    serializer_class = SystemSettingSerializer
+class SystemSettingViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsAdmin]
+    
+    @swagger_auto_schema(tags=['System & Configuration'])
+    def list(self, request):
+        """Get all system settings as a flat dictionary"""
+        settings = SystemSetting.objects.all()
+        result = {}
+        for setting in settings:
+            # Convert string values to proper types
+            value = setting.value
+            if setting.key.startswith('email_') or setting.key in ['maintenance_mode', 'allow_registration', 'daily_digest']:
+                # Boolean settings
+                result[setting.key] = value.lower() in ['true', '1', 'yes']
+            elif setting.key == 'session_timeout':
+                # Numeric setting
+                try:
+                    result[setting.key] = int(value)
+                except (ValueError, TypeError):
+                    result[setting.key] = 60  # default
+            else:
+                # String settings
+                result[setting.key] = value
+        return Response(result)
+    
+    @swagger_auto_schema(tags=['System & Configuration'])
+    @action(detail=False, methods=['patch'])
+    def bulk_update(self, request):
+        """Update multiple settings at once"""
+        updates = request.data
+        for key, value in updates.items():
+            # Convert boolean/int to string for storage
+            if isinstance(value, bool):
+                str_value = 'true' if value else 'false'
+            elif isinstance(value, (int, float)):
+                str_value = str(value)
+            else:
+                str_value = str(value)
+            
+            SystemSetting.objects.update_or_create(
+                key=key,
+                defaults={'value': str_value}
+            )
+        
+        # Return updated settings
+        settings = SystemSetting.objects.all()
+        result = {}
+        for setting in settings:
+            value = setting.value
+            if setting.key.startswith('email_') or setting.key in ['maintenance_mode', 'allow_registration', 'daily_digest']:
+                result[setting.key] = value.lower() in ['true', '1', 'yes']
+            elif setting.key == 'session_timeout':
+                try:
+                    result[setting.key] = int(value)
+                except (ValueError, TypeError):
+                    result[setting.key] = 60
+            else:
+                result[setting.key] = value
+        return Response(result)
 
 
 # Product metadata viewsets
@@ -3650,12 +3791,223 @@ class ProductionUpdateViewSet(viewsets.ModelViewSet):
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
 @method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
+class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
     filterset_fields = ["is_active", "is_superuser"]
     search_fields = ["username", "email", "first_name", "last_name"]
+    http_method_names = ['get', 'post', 'patch', 'head', 'options']
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        
+        if 'group_ids' in request.data:
+            groups = serializer.validated_data.get('groups')
+            instance.groups.set(groups)
+        
+        serializer.save()
+        return Response(serializer.data)
+
+    @decorators.action(detail=False, methods=["get", "patch"], permission_classes=[IsAuthenticated])
+    def me(self, request):
+        """Get or update the authenticated user's basic profile fields."""
+        user = request.user
+
+        if request.method == "GET":
+            serializer = self.get_serializer(user)
+            return Response(serializer.data)
+
+        first_name = request.data.get("first_name")
+        last_name = request.data.get("last_name")
+        update_fields = []
+
+        if first_name is not None:
+            if not isinstance(first_name, str):
+                return Response(
+                    {"detail": "first_name must be a string"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            user.first_name = first_name.strip()
+            update_fields.append("first_name")
+
+        if last_name is not None:
+            if not isinstance(last_name, str):
+                return Response(
+                    {"detail": "last_name must be a string"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            user.last_name = last_name.strip()
+            update_fields.append("last_name")
+
+        if not update_fields:
+            return Response(
+                {"detail": "No updatable fields provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.save(update_fields=update_fields)
+        serializer = self.get_serializer(user)
+        return Response(serializer.data)
+
+    @decorators.action(detail=False, methods=["post"], permission_classes=[IsAuthenticated, IsAdmin])
+    def invite(self, request):
+        """
+        Invite a new staff user via email. Creates an inactive user and sends invitation link.
+        """
+        first_name = request.data.get("first_name")
+        last_name = request.data.get("last_name")
+        email = request.data.get("email")
+        group_ids = request.data.get("group_ids", [])
+        send_invite = request.data.get("send_invite", True)
+
+        if not all([first_name, last_name, email]):
+            return Response(
+                {"detail": "first_name, last_name, and email are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {"detail": "A user with this email already exists"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        username = email.split('@')[0]
+        base_username = username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}{counter}"
+            counter += 1
+
+        user = User.objects.create(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            is_active=False,
+            is_staff=True
+        )
+
+        if group_ids:
+            groups = Group.objects.filter(id__in=group_ids)
+            user.groups.set(groups)
+
+        invite_token = secrets.token_urlsafe(32)
+        cache.set(f'staff_invite_{invite_token}', user.id, 172800)
+
+        if send_invite:
+            try:
+                admin_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+                group_names = ", ".join([g.name for g in user.groups.all()]) if user.groups.exists() else "None"
+                
+                activation_link = f"{settings.STAFF_PORTAL_URL}/activate?token={invite_token}"
+                
+                context = {
+                    'first_name': user.first_name,
+                    'admin_name': admin_name,
+                    'activation_link': activation_link,
+                    'group_names': group_names,
+                    'company_name': getattr(settings, 'COMPANY_NAME', 'PrintDuka'),
+                }
+                
+                html_message = render_to_string('emails/staff_invite.html', context)
+                plain_message = strip_tags(html_message)
+                
+                send_mail(
+                    subject=f"You've been invited to join {context['company_name']} Staff Portal",
+                    message=plain_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    html_message=html_message,
+                    fail_silently=False,
+                )
+                
+                logger.info(f"Staff invite sent to {user.email} by {request.user.username}")
+            except Exception as e:
+                logger.error(f"Failed to send staff invite email: {str(e)}")
+                return Response(
+                    {"detail": "User created but failed to send invitation email", "user_id": user.id},
+                    status=status.HTTP_201_CREATED
+                )
+
+        serializer = self.get_serializer(user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @decorators.action(detail=False, methods=["post"], permission_classes=[AllowAny])
+    def validate_invite(self, request):
+        """
+        Validate an invitation token without activating it.
+        """
+        token = request.data.get("token")
+        
+        if not token:
+            return Response(
+                {"detail": "Token is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user_id = cache.get(f'staff_invite_{token}')
+        
+        if not user_id:
+            return Response(
+                {"detail": "Invalid or expired invitation link"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        return Response({"valid": True})
+
+    @decorators.action(detail=False, methods=["post"], permission_classes=[AllowAny])
+    def activate_invite(self, request):
+        """
+        Activate a user account using an invitation token and set password.
+        """
+        token = request.data.get("token")
+        password = request.data.get("password")
+        
+        if not token or not password:
+            return Response(
+                {"detail": "Token and password are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user_id = cache.get(f'staff_invite_{token}')
+        
+        if not user_id:
+            return Response(
+                {"detail": "Invalid or expired invitation link"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(id=user_id)
+            
+            if user.is_active:
+                return Response(
+                    {"detail": "This account has already been activated"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            user.set_password(password)
+            user.is_active = True
+            user.save()
+            
+            cache.delete(f'staff_invite_{token}')
+            
+            logger.info(f"User {user.username} activated account via invite link")
+            
+            return Response({
+                "detail": "Account activated successfully",
+                "username": user.username
+            })
+            
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
     @decorators.action(detail=False, methods=["get"], permission_classes=[IsAuthenticated, IsAccountManager | IsAdmin])
     def production_team(self, request):
@@ -3674,10 +4026,43 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
 @method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
-class GroupViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Group.objects.all()
+@method_decorator(name='create', decorator=swagger_auto_schema(tags=['System & Configuration']))
+@method_decorator(name='update', decorator=swagger_auto_schema(tags=['System & Configuration']))
+@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['System & Configuration']))
+class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
+    pagination_class = None
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        from django.db.models import Count
+        return Group.objects.annotate(user_count=Count('user')).order_by('name')
+    
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        
+        if 'permission_ids' in request.data:
+            permissions = serializer.validated_data.get('permissions')
+            instance.permissions.set(permissions)
+        
+        serializer.save()
+        
+        from django.db.models import Count
+        instance = Group.objects.annotate(user_count=Count('user')).get(pk=instance.pk)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+
+@method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
+class PermissionViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Permission.objects.select_related('content_type').order_by('content_type__app_label', 'content_type__model', 'codename')
+    serializer_class = PermissionSerializer
+    permission_classes = [IsAuthenticated, IsAdmin]
+    pagination_class = None
+    filterset_fields = ['content_type__app_label']
 
 
 class RegisterView(APIView):
@@ -3759,289 +4144,6 @@ class DashboardViewSet(viewsets.ViewSet):
             },
         }
         return Response(data, status=status.HTTP_200_OK)
-
-
-class AnalyticsViewSet(viewsets.ViewSet):
-    """
-    Expose rich analytics from admin_dashboard.py for Account Manager portal.
-    """
-    permission_classes = [IsAuthenticated, IsAccountManager | IsAdmin]
-
-    def list(self, request):
-        """Return comprehensive analytics data."""
-        from .admin_dashboard import (
-            get_dashboard_stats,
-            get_sales_performance_trend,
-            get_top_selling_products,
-            get_conversion_metrics,
-            get_average_order_value,
-            get_revenue_by_category,
-            get_profit_margin_data,
-            get_time_based_insights,
-        )
-        from decimal import Decimal
-        import json
-
-        # Get all analytics
-        dashboard_stats = get_dashboard_stats()
-        sales_trend = get_sales_performance_trend(months=6)
-        top_products = get_top_selling_products(limit=10)
-        conversion_metrics = get_conversion_metrics()
-        avg_order_value = get_average_order_value()
-        revenue_by_category = get_revenue_by_category()
-        profit_margins = get_profit_margin_data()
-        time_insights = get_time_based_insights()
-
-        # Format sales trend for JSON serialization
-        formatted_sales_trend = []
-        for item in sales_trend:
-            formatted_sales_trend.append({
-                "month": item["month"].strftime("%Y-%m") if hasattr(item["month"], "strftime") else str(item["month"]),
-                "revenue": float(item["revenue"]) if isinstance(item["revenue"], Decimal) else item["revenue"],
-                "orders": item["orders"],
-            })
-
-        return Response({
-            "dashboard_stats": dashboard_stats,
-            "sales_performance_trend": formatted_sales_trend,
-            "top_products": top_products,
-            "conversion_metrics": conversion_metrics,
-            "average_order_value": float(avg_order_value) if isinstance(avg_order_value, Decimal) else avg_order_value,
-            "revenue_by_category": revenue_by_category,
-            "profit_margins": {
-                k: float(v) if isinstance(v, Decimal) else v
-                for k, v in profit_margins.items()
-            },
-            "time_insights": {
-                k: float(v) if isinstance(v, Decimal) else v
-                for k, v in time_insights.items()
-            },
-        }, status=status.HTTP_200_OK)
-
-    @decorators.action(detail=False, methods=["get"])
-    def am_performance(self, request):
-        """
-        Get personalized AM performance analytics for the logged-in Account Manager.
-        Shows conversion rates, total revenue closed, and pending quotes.
-        """
-        user = request.user
-        from decimal import Decimal
-        from django.db.models import Sum, Count, Q
-        
-        # Get all quotes created by this AM
-        am_quotes = Quote.objects.filter(created_by=user)
-        
-        # Total quotes created
-        total_quotes = am_quotes.count()
-        
-        # Approved quotes (revenue closed)
-        approved_quotes = am_quotes.filter(status='Approved')
-        approved_count = approved_quotes.count()
-        
-        # Calculate conversion rate
-        conversion_rate = (approved_count / total_quotes * 100) if total_quotes > 0 else 0
-        
-        # Total revenue from approved quotes
-        total_revenue = approved_quotes.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
-        
-        # Pending quotes (not yet approved or lost)
-        pending_quotes = am_quotes.filter(status__in=['Draft', 'Sent to PT', 'Costed', 'Sent to Customer'])
-        pending_count = pending_quotes.count()
-        
-        # Lost quotes
-        lost_quotes = am_quotes.filter(status='Lost')
-        lost_count = lost_quotes.count()
-        
-        # Total clients managed
-        managed_clients = Client.objects.filter(account_manager=user).count()
-        
-        # Total leads created
-        total_leads = Lead.objects.filter(created_by=user).count()
-        
-        # Converted leads
-        converted_leads = Lead.objects.filter(created_by=user, status='Converted').count()
-        
-        # Lead conversion rate
-        lead_conversion_rate = (converted_leads / total_leads * 100) if total_leads > 0 else 0
-        
-        return Response({
-            "account_manager": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-            },
-            "quotes": {
-                "total": total_quotes,
-                "approved": approved_count,
-                "pending": pending_count,
-                "lost": lost_count,
-                "conversion_rate_percent": round(conversion_rate, 2),
-                "total_revenue": float(total_revenue),
-                "average_quote_value": float(total_revenue / approved_count) if approved_count > 0 else 0,
-            },
-            "leads": {
-                "total": total_leads,
-                "converted": converted_leads,
-                "conversion_rate_percent": round(lead_conversion_rate, 2),
-            },
-            "clients": {
-                "managed": managed_clients,
-            },
-            "performance_summary": {
-                "status": "strong" if conversion_rate >= 50 else "good" if conversion_rate >= 25 else "needs_improvement",
-                "top_metric": f"${float(total_revenue)} in revenue closed" if total_revenue > 0 else "No closed revenue yet",
-            }
-        })
-
-    @decorators.action(detail=False, methods=["get"])
-    def vendor_delivery_rate(self, request):
-        """Get vendor on-time delivery rate trend over last 12 months."""
-        from django.db.models import Count, Q, F
-        from datetime import datetime, timedelta
-        from decimal import Decimal
-        
-        months_back = int(request.query_params.get('months', 12))
-        start_date = timezone.now() - timedelta(days=30*months_back)
-        
-        # Query jobs grouped by month and vendor
-        jobs = Job.objects.filter(
-            completion_date__gte=start_date
-        ).values('vendor_id', 'vendor__name').annotate(
-            total=Count('id'),
-            on_time=Count('id', filter=Q(on_time_delivery=True))
-        ).order_by('vendor_id', '-completion_date')
-        
-        # Format for Chart.js
-        vendors = {}
-        months = []
-        current = start_date
-        while current < timezone.now():
-            month_label = current.strftime('%b %Y')
-            if month_label not in months:
-                months.append(month_label)
-            current += timedelta(days=30)
-        
-        for job in jobs:
-            vendor_name = job['vendor__name'] or 'Unknown'
-            if vendor_name not in vendors:
-                vendors[vendor_name] = []
-            
-            on_time_rate = (job['on_time'] / job['total'] * 100) if job['total'] > 0 else 0
-            vendors[vendor_name].append({
-                'rate': round(on_time_rate, 1),
-                'on_time': job['on_time'],
-                'total': job['total']
-            })
-        
-        return Response({
-            'months': months,
-            'vendors': vendors,
-            'average': 92.5,  # Calculate average across all
-        })
-
-    @decorators.action(detail=False, methods=["get"])
-    def vendor_quality_scores(self, request):
-        """Get average quality scores by vendor."""
-        from django.db.models import Avg, Count
-        from decimal import Decimal
-        
-        limit = int(request.query_params.get('limit', 10))
-        
-        # Get average quality score per vendor
-        vendor_scores = Job.objects.exclude(
-            quality_score__isnull=True
-        ).values('vendor_id', 'vendor__name').annotate(
-            avg_score=Avg('quality_score'),
-            job_count=Count('id')
-        ).filter(job_count__gte=3).order_by('-avg_score')[:limit]
-        
-        vendors = []
-        for v in vendor_scores:
-            vendors.append({
-                'name': v['vendor__name'] or 'Unknown',
-                'score': round(float(v['avg_score']), 2),
-                'jobs': v['job_count'],
-                'rating': '★★★★★' if v['avg_score'] >= 4.5 else '★★★★☆' if v['avg_score'] >= 4.0 else '★★★☆☆'
-            })
-        
-        return Response({
-            'vendors': vendors,
-            'total_vendors': len(vendors),
-        })
-
-    @decorators.action(detail=False, methods=["get"])
-    def vendor_turnaround_time(self, request):
-        """Get average turnaround time by vendor."""
-        from django.db.models import Avg, F, ExpressionWrapper, fields
-        from datetime import timedelta
-        
-        months_back = int(request.query_params.get('months', 12))
-        start_date = timezone.now() - timedelta(days=30*months_back)
-        
-        # Calculate turnaround in days
-        completed_jobs = Job.objects.filter(
-            status='completed',
-            completion_date__gte=start_date
-        ).exclude(
-            start_date__isnull=True
-        ).exclude(
-            completion_date__isnull=True
-        ).values('vendor_id', 'vendor__name').annotate(
-            turnaround_days=Avg(
-                ExpressionWrapper(
-                    F('completion_date') - F('start_date'),
-                    output_field=fields.DurationField()
-                )
-            )
-        ).order_by('vendor_id')
-        
-        vendors = []
-        for job in completed_jobs:
-            if job['turnaround_days']:
-                days = job['turnaround_days'].days
-                vendors.append({
-                    'name': job['vendor__name'] or 'Unknown',
-                    'avg_days': round(days, 1),
-                    'performance': 'excellent' if days <= 3 else 'good' if days <= 5 else 'needs_improvement'
-                })
-        
-        return Response({
-            'vendors': vendors,
-            'target_days': 5.0,
-            'best_performer': vendors[0] if vendors else None,
-        })
-
-    @decorators.action(detail=False, methods=["get"])
-    def job_completion_stats(self, request):
-        """Get overall job completion statistics."""
-        from django.db.models import Count
-        
-        stats = Job.objects.values('status').annotate(
-            count=Count('id')
-        )
-        
-        completed = 0
-        in_progress = 0
-        pending = 0
-        
-        for stat in stats:
-            if stat['status'] == 'completed':
-                completed = stat['count']
-            elif stat['status'] == 'in_progress':
-                in_progress = stat['count']
-            elif stat['status'] == 'pending':
-                pending = stat['count']
-        
-        total = completed + in_progress + pending
-        
-        return Response({
-            'completed': completed,
-            'in_progress': in_progress,
-            'pending': pending,
-            'total': total,
-            'completion_rate': round((completed / total * 100), 1) if total > 0 else 0,
-            'in_progress_rate': round((in_progress / total * 100), 1) if total > 0 else 0,
-        })
 
 
 class SearchViewSet(viewsets.ViewSet):
@@ -4387,16 +4489,16 @@ class ProductionAnalyticsViewSet(viewsets.ViewSet):
         
         # Vendor Reliability (on-time delivery)
         vendor_stages = JobVendorStage.objects.filter(
-            created_at__gte=ninety_days_ago,
+            completed_at__gte=ninety_days_ago,
             status='completed',
             expected_completion__isnull=False,
-            actual_completion__isnull=False
+            completed_at__isnull=False
         )
         
         on_time_count = 0
         late_count = 0
         for stage in vendor_stages:
-            if stage.actual_completion <= stage.expected_completion:
+            if stage.completed_at <= stage.expected_completion:
                 on_time_count += 1
             else:
                 late_count += 1
@@ -5268,8 +5370,11 @@ class PurchaseOrderProofViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter proofs based on user role"""
-        user = self.request.user
         queryset = super().get_queryset()
+        if getattr(self, 'swagger_fake_view', False):
+            return queryset.none()
+        
+        user = self.request.user
         
         # If user is a vendor, filter to their PO proofs only
         try:
@@ -5400,8 +5505,11 @@ class PurchaseOrderIssueViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter issues based on user role"""
-        user = self.request.user
         queryset = super().get_queryset()
+        if getattr(self, 'swagger_fake_view', False):
+            return queryset.none()
+        
+        user = self.request.user
         
         # If user is a vendor, filter to their PO issues only
         try:
@@ -5489,8 +5597,11 @@ class PurchaseOrderNoteViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter notes based on user role"""
-        user = self.request.user
         queryset = super().get_queryset()
+        if getattr(self, 'swagger_fake_view', False):
+            return queryset.none()
+        
+        user = self.request.user
         
         # If user is a vendor, filter to their PO notes only
         try:
@@ -5529,8 +5640,11 @@ class MaterialSubstitutionRequestViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter substitutions based on user role"""
-        user = self.request.user
         queryset = super().get_queryset()
+        if getattr(self, 'swagger_fake_view', False):
+            return queryset.none()
+        
+        user = self.request.user
         
         # If user is a vendor, filter to their PO substitutions only
         try:
@@ -5645,6 +5759,9 @@ class ClientPortalUserViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Restrict to user's client only"""
         queryset = super().get_queryset()
+        if getattr(self, 'swagger_fake_view', False):
+            return queryset.none()
+        
         user = self.request.user
         
         try:
@@ -5777,6 +5894,9 @@ class ClientOrderViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Restrict to user's client"""
+        if getattr(self, 'swagger_fake_view', False):
+            return ClientOrder.objects.none()
+        
         queryset = super().get_queryset()
         try:
             portal_user = ClientPortalUser.objects.get(user=self.request.user)
@@ -5915,6 +6035,9 @@ class ClientPaymentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Restrict to user's client"""
+        if getattr(self, 'swagger_fake_view', False):
+            return ClientPayment.objects.none()
+        
         queryset = super().get_queryset()
         try:
             portal_user = ClientPortalUser.objects.get(user=self.request.user)
@@ -6010,6 +6133,9 @@ class ClientSupportTicketViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Restrict to user's client"""
+        if getattr(self, 'swagger_fake_view', False):
+            return ClientSupportTicket.objects.none()
+        
         queryset = super().get_queryset()
         try:
             portal_user = ClientPortalUser.objects.get(user=self.request.user)
@@ -6161,6 +6287,9 @@ class ClientDocumentLibraryViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Restrict to user's client"""
+        if getattr(self, 'swagger_fake_view', False):
+            return ClientDocumentLibrary.objects.none()
+        
         queryset = super().get_queryset()
         try:
             portal_user = ClientPortalUser.objects.get(user=self.request.user)
@@ -6432,13 +6561,12 @@ class SLAEscalationViewSet(viewsets.ReadOnlyModelViewSet):
     def get_serializer_class(self):
         """Serializer for escalations"""
         class EscalationSerializer(serializers.ModelSerializer):
-            job_number = serializers.CharField(source='job_vendor_stage.job.job_number', read_only=True)
-            vendor_name = serializers.CharField(source='job_vendor_stage.vendor.name', read_only=True)
             
             class Meta:
                 model = SLAEscalation
-                fields = ['id', 'job_vendor_stage', 'job_number', 'vendor_name', 'level',
-                         'days_overdue', 'message', 'created_at']
+                fields = ['id', 'purchase_order', 'escalation_level', 'escalation_status',
+                         'original_deadline', 'current_deadline', 'days_overdue', 
+                         'escalation_reason', 'escalation_notes']
                 ref_name = 'SLAEscalationDetail'
         
         return EscalationSerializer
@@ -6801,7 +6929,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Notification.objects.all()
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
-    filterset_fields = ['notification_type', 'is_read', 'recipient_type']
+    filterset_fields = ['notification_type', 'is_read', 'recipient']
     ordering = ['-created_at']
     pagination_class = None
 
@@ -6809,14 +6937,11 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         """Filter notifications for current user"""
         user = self.request.user
         queryset = super().get_queryset()
-        
-        # Get notifications for this PT user
-        queryset = queryset.filter(
-            recipient_type='PT',
-            recipient_id=user.id
-        )
-        
-        return queryset
+
+        if user.is_superuser or user.groups.filter(name='Admin').exists():
+            return queryset
+
+        return queryset.filter(recipient=user)
 
     @action(detail=True, methods=['post'])
     def mark_read(self, request, pk=None):
@@ -7318,6 +7443,9 @@ class DeadlineAlertViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by user's assigned jobs"""
+        if getattr(self, 'swagger_fake_view', False):
+            return DeadlineAlert.objects.none()
+        
         user = self.request.user
         if user.groups.filter(name='Account Manager').exists() or user.is_superuser:
             return DeadlineAlert.objects.all()
@@ -7409,6 +7537,9 @@ class JobFileViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by user's jobs or shared files"""
+        if getattr(self, 'swagger_fake_view', False):
+            return JobFile.objects.none()
+        
         user = self.request.user
         if user.groups.filter(name='Account Manager').exists() or user.is_superuser:
             return JobFile.objects.all()
@@ -7506,6 +7637,9 @@ class DocumentShareViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by user's shares"""
+        if getattr(self, 'swagger_fake_view', False):
+            return DocumentShare.objects.none()
+        
         user = self.request.user
         if user.is_superuser:
             return DocumentShare.objects.all()

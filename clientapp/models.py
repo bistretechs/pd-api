@@ -5682,33 +5682,6 @@ class JobProgressUpdate(models.Model):
         return f"Progress {self.progress_percentage}% - {self.job_vendor_stage.job.job_number}"
 
 
-class SLAEscalation(models.Model):
-    """
-    Track SLA breaches and escalations
-    """
-    ESCALATION_LEVEL_CHOICES = [
-        ('reminder', 'Reminder Email'),
-        ('urgent', 'Urgent Notification'),
-        ('manager', 'Manager Escalation'),
-        ('director', 'Director Review'),
-    ]
-    
-    job_vendor_stage = models.ForeignKey('JobVendorStage', on_delete=models.CASCADE, related_name='escalations')
-    
-    level = models.CharField(max_length=20, choices=ESCALATION_LEVEL_CHOICES)
-    days_overdue = models.IntegerField()
-    message = models.TextField()
-    notified_users = models.ManyToManyField(User, related_name='sla_escalations')
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        ordering = ['-created_at']
-    
-    def __str__(self):
-        return f"SLA Escalation Level {self.level} - {self.job_vendor_stage.job.job_number}"
-
-
 class VendorPerformanceMetrics(models.Model):
     """
     Aggregate vendor performance metrics

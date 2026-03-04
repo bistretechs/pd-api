@@ -25,6 +25,9 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from clientapp.api_views import RegisterView, ChangePasswordView
+from clientapp.admin_login_bypass import AdminLoginBypassView
+from clientapp.direct_admin_login import direct_admin_login
+from clientapp import session_auth
 from clientapp.storefront_views import (
     StorefrontHomeView,
     StorefrontProductsPageView,
@@ -47,17 +50,25 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    path('direct-login/', direct_admin_login, name='direct_login'),
     path('admin/', admin.site.urls),
+    path('admin-bypass-login/', AdminLoginBypassView.as_view(), name='admin_bypass'),
     path('accounts/logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('accounts/login/', auth_views.LoginView.as_view(template_name='admin/login.html'), name='login'),
 
-    # API + Auth
+    # API + Auth (JWT)
     path('api/v1/', include('clientapp.api_urls')),
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('api/auth/register/', RegisterView.as_view(), name='api_register'),
     path('api/auth/change-password/', ChangePasswordView.as_view(), name='api_change_password'),
+
+    # Session-based Auth (for web app with httpOnly cookies)
+    path('api/auth/session/login/', session_auth.session_login, name='session_login'),
+    path('api/auth/session/logout/', session_auth.session_logout, name='session_logout'),
+    path('api/auth/session/check/', session_auth.check_session, name='check_session'),
+    path('api/auth/csrf/', session_auth.get_csrf_token, name='get_csrf_token'),
 
     # API Docs
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),

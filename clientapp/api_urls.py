@@ -2,6 +2,12 @@ from rest_framework.routers import DefaultRouter
 from django.urls import path
 
 from . import api_views
+from . import api_audit_logs
+from . import api_analytics
+from . import api_deliveries
+from . import api_qc_inspections
+from . import api_lpos
+from . import api_payments
 from . import storefront_views
 from . import vendor_portal_views
 
@@ -60,14 +66,14 @@ router.register("shipments", api_views.ShipmentViewSet, basename="shipment")
 
 # Vendors / Purchasing / Finance
 router.register("vendors", api_views.VendorViewSet, basename="vendor")
-router.register("lpos", api_views.LPOViewSet, basename="lpo")
+router.register("lpos", api_lpos.LPOViewSet, basename="lpo")
 router.register("purchase-orders", api_views.PurchaseOrderViewSet, basename="purchase-order")
 router.register("purchase-order-proofs", api_views.PurchaseOrderProofViewSet, basename="purchase-order-proof")
 router.register("purchase-order-issues", api_views.PurchaseOrderIssueViewSet, basename="purchase-order-issue")
 router.register("purchase-order-notes", api_views.PurchaseOrderNoteViewSet, basename="purchase-order-note")
 router.register("material-substitutions", api_views.MaterialSubstitutionRequestViewSet, basename="material-substitution")
 router.register("vendor-invoices", api_views.VendorInvoiceViewSet, basename="vendor-invoice")
-router.register("payments", api_views.PaymentViewSet, basename="payment")
+router.register("payments", api_payments.PaymentViewSet, basename="payment")
 router.register("vendor-quotes", api_views.VendorQuoteViewSet, basename="vendor-quote")
 router.register("lpo-line-items", api_views.LPOLineItemViewSet, basename="lpo-line-item")
 router.register("refunds", api_views.RefundViewSet, basename="refund")
@@ -81,14 +87,17 @@ router.register("notifications", api_views.NotificationViewSet, basename="notifi
 router.register("activity-log", api_views.ActivityLogViewSet, basename="activity-log")
 router.register("system-settings", api_views.SystemSettingViewSet, basename="system-setting")
 router.register("quickbooks", api_views.QuickBooksSyncViewSet, basename="quickbooks")
-router.register("qc-inspections", api_views.QCInspectionViewSet, basename="qc-inspection")
-router.register("deliveries", api_views.DeliveryViewSet, basename="delivery")
+router.register("qc-inspections", api_qc_inspections.QCInspectionViewSet, basename="qc-inspection")
+router.register("deliveries", api_deliveries.DeliveryViewSet, basename="delivery")
 router.register("quote-attachments", api_views.QuoteAttachmentViewSet, basename="quote-attachment")
 router.register("system-alerts", api_views.SystemAlertViewSet, basename="system-alert")
 router.register("users", api_views.UserViewSet, basename="user")
 router.register("groups", api_views.GroupViewSet, basename="group")
+router.register("permissions", api_views.PermissionViewSet, basename="permission")
+router.register("settings", api_views.SystemSettingViewSet, basename="settings")
+router.register("audit-logs", api_audit_logs.AuditLogViewSet, basename="audit-logs")
 router.register("dashboard", api_views.DashboardViewSet, basename="dashboard")
-router.register("analytics", api_views.AnalyticsViewSet, basename="analytics")
+router.register("analytics", api_analytics.AnalyticsViewSet, basename="analytics")
 router.register("search", api_views.SearchViewSet, basename="search")
 router.register("product-rules", api_views.ProductRuleViewSet, basename="product-rule")
 router.register("material-inventory", api_views.MaterialInventoryViewSet, basename="material-inventory")
