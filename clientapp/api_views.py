@@ -4153,6 +4153,192 @@ class DashboardViewSet(viewsets.ViewSet):
         }
         return Response(data, status=status.HTTP_200_OK)
 
+    @decorators.action(detail=False, methods=["get"], url_path="account-manager")
+    def account_manager_dashboard(self, request):
+        """Return personalized dashboard data for the logged-in account manager."""
+        from datetime import timedelta
+        from django.db.models import Sum, Count, Q
+        from decimal import Decimal
+        
+        user = request.user
+        today = timezone.now().date()
+        this_month_start = today.replace(day=1)
+        six_months_ago = today - timedelta(days=180)
+        
+        # KPIs
+        my_revenue_this_month = Quote.objects.filter(
+            created_by=user,
+            status='Approved',
+            created_at__gte=this_month_start
+        ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
+        
+        my_quotes_this_month = Quote.objects.filter(
+            created_by=user,
+            created_at__gte=this_month_start
+        ).values('quote_id').distinct().count()
+        
+        my_quotes_approved_this_month = Quote.objects.filter(
+            created_by=user,
+            status='Approved',
+            created_at__gte=this_month_start
+        ).values('quote_id').distinct().count()
+        
+        my_win_rate = (my_quotes_approved_this_month / my_quotes_this_month * 100) if my_quotes_this_month > 0 else 0
+        
+        active_jobs_count = Job.objects.filter(
+            client__account_manager=user,
+            status__in=['pending', 'in_progress']
+        ).count()
+        
+        new_clients_this_month = Client.objects.filter(
+            account_manager=user,
+            created_at__gte=this_month_start
+        ).count()
+        
+        # Lead Funnel
+        lead_funnel = {
+            "new": Lead.objects.filter(created_by=user, status="New").count(),
+            "contacted": Lead.objects.filter(created_by=user, status="Contacted").count(),
+            "qualified": Lead.objects.filter(created_by=user, status="Qualified").count(),
+            "converted": Lead.objects.filter(created_by=user, status="Converted").count(),
+        }
+        
+        # Quote Status Distribution
+        quote_status = {
+            "draft": Quote.objects.filter(created_by=user, status="Draft").values('quote_id').distinct().count(),
+            "quoted": Quote.objects.filter(created_by=user, status__in=["Quoted", "Sent to Customer"]).values('quote_id').distinct().count(),
+            "approved": Quote.objects.filter(created_by=user, status="Approved").values('quote_id').distinct().count(),
+            "lost": Quote.objects.filter(created_by=user, status="Lost").values('quote_id').distinct().count(),
+        }
+        
+        # Revenue Trend (last 6 months)
+        revenue_trend = []
+        for i in range(5, -1, -1):
+            month_start = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
+            month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            
+            revenue = Quote.objects.filter(
+                created_by=user,
+                status='Approved',
+                created_at__gte=month_start,
+                created_at__lte=month_end
+            ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
+            
+            revenue_trend.append({
+                "month": month_start.strftime("%b"),
+                "revenue": float(revenue)
+            })
+        
+        # Client Growth (last 6 months)
+        client_growth = []
+        for i in range(5, -1, -1):
+            month_start = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
+            month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            
+            b2b_count = Client.objects.filter(
+                account_manager=user,
+                client_type='B2B',
+                created_at__gte=month_start,
+                created_at__lte=month_end
+            ).count()
+            
+            b2c_count = Client.objects.filter(
+                account_manager=user,
+                client_type='B2C',
+                created_at__gte=month_start,
+                created_at__lte=month_end
+            ).count()
+            
+            client_growth.append({
+                "month": month_start.strftime("%b"),
+                "b2b": b2b_count,
+                "b2c": b2c_count
+            })
+        
+        # Top Products by Revenue
+        top_products_data = Quote.objects.filter(
+            created_by=user,
+            status='Approved'
+        ).values('product_name').annotate(
+            revenue=Sum('total_amount'),
+            count=Count('id')
+        ).order_by('-revenue')[:5]
+        
+        top_products = [
+            {
+                "name": item['product_name'],
+                "revenue": float(item['revenue']),
+                "count": item['count']
+            }
+            for item in top_products_data
+        ]
+        
+        # Jobs Status Distribution
+        jobs_status = {
+            "pending": Job.objects.filter(client__account_manager=user, status="pending").count(),
+            "in_progress": Job.objects.filter(client__account_manager=user, status="in_progress").count(),
+            "on_hold": Job.objects.filter(client__account_manager=user, status="on_hold").count(),
+            "completed": Job.objects.filter(client__account_manager=user, status="completed").count(),
+        }
+        
+        # Recent Quotes
+        recent_quotes_qs = Quote.objects.filter(
+            created_by=user
+        ).select_related('client', 'lead').order_by('-created_at')[:5]
+        
+        recent_quotes = []
+        for quote in recent_quotes_qs:
+            recent_quotes.append({
+                "id": quote.id,
+                "quote_id": quote.quote_id,
+                "client_name": quote.client.name if quote.client else None,
+                "lead_name": quote.lead.name if quote.lead else None,
+                "product_name": quote.product_name,
+                "quantity": quote.quantity,
+                "total_amount": float(quote.total_amount),
+                "status": quote.status,
+                "created_at": quote.created_at.isoformat(),
+            })
+        
+        # Upcoming Actions (quotes needing follow-up)
+        upcoming_actions = []
+        follow_up_quotes = Quote.objects.filter(
+            created_by=user,
+            status='Quoted',
+            created_at__gte=timezone.now() - timedelta(days=7)
+        ).select_related('client', 'lead')[:5]
+        
+        for quote in follow_up_quotes:
+            client_name = quote.client.name if quote.client else (quote.lead.name if quote.lead else 'Unknown')
+            upcoming_actions.append({
+                "type": "quote",
+                "id": quote.id,
+                "title": f"Follow Up Quote {quote.quote_id}",
+                "description": quote.product_name,
+                "client_name": client_name,
+                "due_date": (quote.created_at + timedelta(days=3)).isoformat(),
+                "priority": "medium"
+            })
+        
+        data = {
+            "kpis": {
+                "my_revenue_this_month": float(my_revenue_this_month),
+                "my_win_rate": round(my_win_rate, 1),
+                "active_jobs_count": active_jobs_count,
+                "new_clients_this_month": new_clients_this_month,
+            },
+            "lead_funnel": lead_funnel,
+            "quote_status": quote_status,
+            "revenue_trend": revenue_trend,
+            "client_growth": client_growth,
+            "top_products": top_products,
+            "jobs_status": jobs_status,
+            "recent_quotes": recent_quotes,
+            "upcoming_actions": upcoming_actions,
+        }
+        
+        return Response(data, status=status.HTTP_200_OK)
+
 
 class SearchViewSet(viewsets.ViewSet):
     """

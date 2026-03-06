@@ -3,10 +3,10 @@
 # ============================================================================
 
 from django.utils import timezone
-from django.db.models import Sum, Count, Avg, Q
+from django.db.models import Sum, Count, Avg, Q, F
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from datetime import timedelta
 from decimal import Decimal
@@ -32,6 +32,7 @@ from .vendor_portal_serializers import (
     VendorPerformanceSerializer,
 )
 from .api_serializers import VendorSerializer
+from .permissions import IsVendor
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
@@ -41,7 +42,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """
     queryset = PurchaseOrder.objects.all()
     serializer_class = PurchaseOrderSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsVendor]
     filterset_fields = ['vendor', 'status', 'milestone', 'job']
     search_fields = ['po_number', 'product_type', 'job__job_number']
     ordering_fields = ['created_at', 'required_by', 'status']
@@ -380,11 +381,17 @@ class VendorSelfInfoViewSet(viewsets.ViewSet):
     ViewSet for Vendor's own information.
     Allows vendors to access and update their own profile data.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def me(self, request):
         """Get current vendor's info"""
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
         try:
             vendor = Vendor.objects.get(user=request.user, active=True)
             serializer = VendorSerializer(vendor)
@@ -398,9 +405,15 @@ class VendorSelfInfoViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
     
-    @action(detail=False, methods=['patch'])
+    @action(detail=False, methods=['patch'], permission_classes=[AllowAny])
     def update_me(self, request):
         """Update current vendor's info"""
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
         try:
             vendor = Vendor.objects.get(user=request.user, active=True)
             serializer = VendorSerializer(vendor, data=request.data, partial=True)
@@ -427,9 +440,9 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
     ViewSet for Vendor Performance Analytics.
     Provides performance metrics and scorecard data.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def scorecard(self, request):
         """Get vendor performance scorecard"""
         vendor_id = request.query_params.get('vendor_id')
@@ -447,29 +460,36 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Calculate performance metrics
-        performance_data = vendor.calculate_vps()
+        # Calculate QC pass rate for insights
+        qc_inspections_90d = QCInspection.objects.filter(
+            vendor=vendor,
+            created_at__gte=timezone.now() - timedelta(days=90)
+        )
+        total_qc_90d = qc_inspections_90d.count()
+        passed_qc_90d = qc_inspections_90d.filter(status='passed').count()
+        qc_pass_rate = (passed_qc_90d / total_qc_90d * 100) if total_qc_90d > 0 else 0
         
         # On-time delivery rate
         stages = JobVendorStage.objects.filter(
             vendor=vendor,
             status='completed',
-            actual_completion__isnull=False
+            completed_at__isnull=False
         )
         total_stages = stages.count()
-        on_time_stages = sum(1 for stage in stages if stage.is_on_time)
+        # Calculate on-time based on completed_at vs expected_completion
+        on_time_stages = stages.filter(completed_at__lte=F('expected_completion')).count()
         on_time_rate = (on_time_stages / total_stages * 100) if total_stages > 0 else 0
         
         # Average turnaround time
         completed_pos = PurchaseOrder.objects.filter(
             vendor=vendor,
             status='completed',
-            actual_completion__isnull=False
+            completed_at__isnull=False
         )
         avg_turnaround = 0
         if completed_pos.exists():
             turnaround_times = [
-                (po.actual_completion - po.created_at.date()).days
+                (po.completed_at.date() - po.created_at.date()).days
                 for po in completed_pos
             ]
             avg_turnaround = sum(turnaround_times) / len(turnaround_times)
@@ -519,12 +539,12 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
         # Performance insights
         insights = []
         
-        if performance_data['qc_pass_rate'] >= 95:
+        if qc_pass_rate >= 95:
             insights.append({
                 'type': 'positive',
                 'icon': 'check-circle',
                 'title': 'Strong QC Track Record',
-                'description': f"Maintained {performance_data['qc_pass_rate']:.1f}% QC pass rate over 90 days - {total_qc} inspections"
+                'description': f"Maintained {qc_pass_rate:.1f}% QC pass rate over 90 days - {total_qc_90d} inspections"
             })
         
         if on_time_rate < 85:
@@ -552,7 +572,7 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
             
             # Metrics
             'on_time_rate': round(on_time_rate, 1),
-            'quality_score': round(performance_data['qc_pass_rate'], 1),
+            'quality_score': round(qc_pass_rate, 1),
             'avg_turnaround': round(avg_turnaround, 1),
             'defect_rate': round(defect_rate, 1),
             'cost_per_job': round(cost_per_job, 2),

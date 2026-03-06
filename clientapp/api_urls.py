@@ -130,7 +130,6 @@ router.register("profitability-analysis", api_views.ProfitabilityAnalysisViewSet
 router.register("messages", api_views.MessageViewSet, basename="message")
 router.register("progress-updates", api_views.ProgressUpdateViewSet, basename="progress-update")
 router.register("proof-submissions", api_views.ProofSubmissionViewSet, basename="proof-submission")
-router.register("vendor-performance", api_views.VendorPerformanceViewSet, basename="vendor-performance")
 
 # Phase 3: Client Portal, Analytics, and Payment Tracking APIs
 router.register("client-portal-notifications", api_views.ClientNotificationViewSet, basename="client-portal-notifications")
@@ -148,6 +147,7 @@ router.register("vendor-self-info", vendor_portal_views.VendorSelfInfoViewSet, b
 router.register("vendor-portal-pos", vendor_portal_views.PurchaseOrderViewSet, basename="vendor-portal-po")
 router.register("vendor-portal-invoices", vendor_portal_views.VendorInvoiceViewSet, basename="vendor-portal-invoice")
 router.register("vendor-portal-proofs", vendor_portal_views.PurchaseOrderProofViewSet, basename="vendor-portal-proof")
+router.register("vendor-performance", vendor_portal_views.VendorPerformanceViewSet, basename="vendor-performance")
 router.register("vendor-portal-issues", vendor_portal_views.PurchaseOrderIssueViewSet, basename="vendor-portal-issue")
 router.register("vendor-portal-notes", vendor_portal_views.PurchaseOrderNoteViewSet, basename="vendor-portal-note")
 router.register("vendor-portal-substitutions", vendor_portal_views.MaterialSubstitutionRequestViewSet, basename="vendor-portal-substitution")
