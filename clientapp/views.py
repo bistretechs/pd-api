@@ -4860,7 +4860,7 @@ def production_proof_approval_submit(request):
                         'vendor': proof.job.vendor_id,
                         'trigger_type': 'proof_approval',
                         'trigger_id': proof_id,
-                        'previous_score': proof.job.vendor.vps_score if proof.job.vendor else 0,
+                        'previous_score': float(proof.job.vendor.vps_score_value) if proof.job.vendor else 0,
                     }
                     # Calculate new score based on decision
                     if decision == 'pass':
@@ -7695,10 +7695,14 @@ def vendor_comparison(request, job_id):
             Q(vendor__specialties__name__icontains=search_query)
         ).distinct()
     
-    # Filter vendors based on VPS score
+    # Filter vendors based on VPS score grade
     vps_filter = request.GET.get('vps_score', 'all')
-    if vps_filter != 'all' and vps_filter in ['A', 'B', 'C']:
-        vendor_quotes = vendor_quotes.filter(vendor__vps_score=vps_filter)
+    if vps_filter == 'A':
+        vendor_quotes = vendor_quotes.filter(vendor__vps_score_value__gte=90)
+    elif vps_filter == 'B':
+        vendor_quotes = vendor_quotes.filter(vendor__vps_score_value__gte=75, vendor__vps_score_value__lt=90)
+    elif vps_filter == 'C':
+        vendor_quotes = vendor_quotes.filter(vendor__vps_score_value__gte=60, vendor__vps_score_value__lt=75)
     
     # Filter by lead time if specified
     lead_time_filter = request.GET.get('lead_time', 'all')
@@ -7852,14 +7856,7 @@ def submit_qc(request):
             vendor.vps_score_value -= 2.0
             messages.warning(request, f' QC failed. Vendor VPS -2.0')
         
-        # Recalculate VPS letter grade
-        if vendor.vps_score_value >= 8.0:
-            vendor.vps_score = 'A'
-        elif vendor.vps_score_value >= 5.0:
-            vendor.vps_score = 'B'
-        else:
-            vendor.vps_score = 'C'
-        
+        # Recalculate VPS letter grade — now derived automatically from vps_score_value
         vendor.save()
         
         # Update job status
@@ -8673,7 +8670,6 @@ def ajax_create_vendor_comprehensive(request):
         rush_capable = payload.get('rush_capable', False)
         quality_rating = payload.get('quality_rating', '')
         reliability_rating = payload.get('reliability_rating', '')
-        vps_score = payload.get('vps_score', 'B')
         vps_score_value = float(payload.get('vps_score_value', 5.0))
         rating = float(payload.get('rating', 4.0))
         recommended = payload.get('recommended', False)
@@ -8697,7 +8693,6 @@ def ajax_create_vendor_comprehensive(request):
                 vendor.rush_capable = rush_capable
                 vendor.quality_rating = quality_rating
                 vendor.reliability_rating = reliability_rating
-                vendor.vps_score = vps_score
                 vendor.vps_score_value = vps_score_value
                 vendor.rating = rating
                 vendor.recommended = recommended
@@ -8708,7 +8703,6 @@ def ajax_create_vendor_comprehensive(request):
                     'id': vendor.id,
                     'name': vendor.name,
                     'vps_score_value': str(vendor.vps_score_value),
-                    'vps_score': vendor.vps_score,
                     'rating': str(vendor.rating),
                     'message': f'Vendor "{vendor.name}" updated successfully!'
                 })
@@ -8735,7 +8729,6 @@ def ajax_create_vendor_comprehensive(request):
                 rush_capable=rush_capable,
                 quality_rating=quality_rating,
                 reliability_rating=reliability_rating,
-                vps_score=vps_score,
                 vps_score_value=vps_score_value,
                 rating=rating,
                 recommended=recommended,
@@ -8747,7 +8740,6 @@ def ajax_create_vendor_comprehensive(request):
                 'id': vendor.id,
                 'name': vendor.name,
                 'vps_score_value': str(vendor.vps_score_value),
-                'vps_score': vendor.vps_score,
                 'rating': str(vendor.rating),
                 'message': f'Vendor "{vendor.name}" created successfully!'
             })
@@ -8919,7 +8911,6 @@ def ajax_create_vendor(request):
         rush_capable = payload.get('rush_capable', False)
         quality_rating = payload.get('quality_rating', '')
         reliability_rating = payload.get('reliability_rating', '')
-        vps_score = payload.get('vps_score', 'B')
         vps_score_value = float(payload.get('vps_score_value', 5.0) or 5.0)
         rating = float(payload.get('rating', 4.0) or 4.0)
         recommended = payload.get('recommended', False)
@@ -8943,7 +8934,6 @@ def ajax_create_vendor(request):
                 vendor.rush_capable = rush_capable
                 vendor.quality_rating = quality_rating
                 vendor.reliability_rating = reliability_rating
-                vendor.vps_score = vps_score
                 vendor.vps_score_value = vps_score_value
                 vendor.rating = rating
                 vendor.recommended = recommended
@@ -8954,7 +8944,6 @@ def ajax_create_vendor(request):
                     'id': vendor.id,
                     'name': vendor.name,
                     'vps_score_value': str(vendor.vps_score_value),
-                    'vps_score': vendor.vps_score,
                     'rating': str(vendor.rating),
                     'message': f'Vendor "{vendor.name}" updated successfully!'
                 })
@@ -8981,7 +8970,6 @@ def ajax_create_vendor(request):
                 rush_capable=rush_capable,
                 quality_rating=quality_rating,
                 reliability_rating=reliability_rating,
-                vps_score=vps_score,
                 vps_score_value=vps_score_value,
                 rating=rating,
                 recommended=recommended,
@@ -8993,7 +8981,6 @@ def ajax_create_vendor(request):
                 'id': vendor.id,
                 'name': vendor.name,
                 'vps_score_value': str(vendor.vps_score_value),
-                'vps_score': vendor.vps_score,
                 'rating': str(vendor.rating),
                 'message': f'Vendor "{vendor.name}" created successfully!'
             })
@@ -10448,7 +10435,6 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
         # Build response
         scorecard_data = {
             'overall_score': int(vendor.vps_score_value),
-            'vps_grade': vendor.vps_score,
             'tax_status': 'Compliant with tax filing' if vendor.tax_pin else 'No tax info',
             'certifications': ['Certified Vendor'] if vendor.recommended else [],
             

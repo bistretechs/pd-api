@@ -940,7 +940,7 @@ class ProcessTierAdmin(admin.ModelAdmin):
 @admin.register(ProcessVendor)
 class ProcessVendorAdmin(admin.ModelAdmin):
     list_display = [
-        'process', 'vendor_name', 'vendor_id', 'vps_score', 
+        'process', 'vendor_name', 'vendor_id',
         'priority', 'rush_enabled'
     ]
     list_filter = ['priority', 'rush_enabled', 'process']

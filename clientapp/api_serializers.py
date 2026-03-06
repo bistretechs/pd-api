@@ -1192,7 +1192,6 @@ class MaterialSubstitutionRequestSerializer(serializers.ModelSerializer):
 class VendorPerformanceSerializer(serializers.Serializer):
     """Serializer for Vendor Performance Metrics"""
     overall_score = serializers.IntegerField()
-    vps_grade = serializers.CharField()
     tax_status = serializers.CharField()
     certifications = serializers.ListField(child=serializers.CharField())
     

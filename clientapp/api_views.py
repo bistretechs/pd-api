@@ -2217,7 +2217,7 @@ class VendorViewSet(viewsets.ModelViewSet):
     queryset = Vendor.objects.all()
     serializer_class = VendorSerializer
     permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin | IsAccountManager]
-    filterset_fields = ["vps_score", "active"]
+    filterset_fields = ["vps_score_value", "active"]
     search_fields = ["name", "email", "phone", "services"]
 
     @decorators.action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsProductionTeam | IsAdmin])
@@ -4622,7 +4622,6 @@ class CostingEngineViewSet(viewsets.ViewSet):
             vendor_suggestions.append({
                 "vendor_id": pv.vendor.id,
                 "vendor_name": pv.vendor.name,
-                "vps_score": pv.vendor.vps_score,
                 "vps_score_value": float(pv.vendor.vps_score_value),
                 "priority": pv.priority,
             })
@@ -6845,21 +6844,11 @@ class VendorPerformanceMetricsViewSet(viewsets.ReadOnlyModelViewSet):
         """Serializer for performance metrics"""
         class MetricsSerializer(serializers.ModelSerializer):
             vendor_name = serializers.CharField(source='vendor.name', read_only=True)
-            vps_score = serializers.SerializerMethodField()
-            
-            def get_vps_score(self, obj):
-                """Calculate VPS score (weighted average)"""
-                on_time = float(obj.on_time_percentage) * 0.3
-                qc = float(obj.qc_pass_rate) * 0.4
-                response = (100 - float(obj.avg_response_time_hours)) * 0.2
-                compliance = 100 * 0.1  # Default compliance
-                return round(on_time + qc + response + compliance, 2)
-            
             class Meta:
                 model = VendorPerformanceMetrics
                 fields = ['id', 'vendor', 'vendor_name', 'total_jobs', 'on_time_jobs', 'on_time_percentage',
                          'qc_passed_jobs', 'qc_failed_jobs', 'qc_pass_rate', 'avg_response_time_hours',
-                         'total_invoice_amount', 'approved_invoice_amount', 'dispute_amount', 'vps_score', 'last_updated']
+                         'total_invoice_amount', 'approved_invoice_amount', 'dispute_amount', 'last_updated']
                 ref_name = 'VendorPerformanceMetricsDetail'
         
         return MetricsSerializer

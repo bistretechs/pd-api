@@ -2978,19 +2978,6 @@ class Vendor(models.Model):
         self.vps_score_value = score
         self.save(update_fields=['performance_score', 'vps_score_value'])
 
-    @property
-    def vps_score(self) -> str:
-        score = float(self.vps_score_value)
-        if score >= 90:
-            return 'A'
-        if score >= 75:
-            return 'B'
-        if score >= 60:
-            return 'C'
-        if score >= 45:
-            return 'D'
-        return 'F'
-    
     def get_current_workload(self):
         """Get count of active jobs for vendor"""
         active_statuses = ['sent_to_vendor', 'in_production']

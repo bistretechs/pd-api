@@ -257,7 +257,7 @@ class VendorForm(forms.ModelForm):
             'name', 'contact_person', 'email', 'phone', 'business_address',
             'tax_pin', 'payment_terms', 'payment_method', 'services', 
             'specialization', 'minimum_order', 'lead_time', 'rush_capable',
-            'quality_rating', 'reliability_rating', 'vps_score', 'vps_score_value',
+            'quality_rating', 'reliability_rating', 'vps_score_value',
             'rating', 'internal_notes', 'recommended', 'active'
         ]
         widgets = {
@@ -277,7 +277,6 @@ class VendorForm(forms.ModelForm):
             'rush_capable': forms.CheckboxInput(attrs={'class': 'w-4 h-4'}),
             'quality_rating': forms.Select(attrs={'class': 'form-select w-full'}),
             'reliability_rating': forms.Select(attrs={'class': 'form-select w-full'}),
-            'vps_score': forms.Select(attrs={'class': 'form-select w-full'}),
             'vps_score_value': forms.NumberInput(attrs={'class': 'form-input w-full', 'step': '0.01'}),
             'rating': forms.NumberInput(attrs={'class': 'form-input w-full', 'step': '0.1', 'min': '0', 'max': '5'}),
             'internal_notes': forms.Textarea(attrs={'class': 'form-textarea w-full', 'rows': 4}),

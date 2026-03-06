@@ -138,9 +138,33 @@ USE_I18N = True
 
 USE_TZ = True
 
-# Media files - responsible for uploads
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# Media files - Cloudflare R2 in production, local disk in development
+_USE_R2 = os.environ.get('USE_R2', 'false').lower() == 'true'
+
+if _USE_R2:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+    AWS_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID', '')
+    AWS_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '')
+    AWS_STORAGE_BUCKET_NAME = os.environ.get('R2_BUCKET_NAME', 'printduka')
+    AWS_S3_ENDPOINT_URL = f"https://{os.environ.get('R2_ACCOUNT_ID', '899c353a058f3925d7adc62c2d2d5730')}.r2.cloudflarestorage.com"
+    AWS_S3_REGION_NAME = 'auto'
+    AWS_DEFAULT_ACL = None
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_QUERYSTRING_AUTH = True
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    _r2_public_url = os.environ.get('R2_PUBLIC_URL', '')
+    MEDIA_URL = f"{_r2_public_url}/" if _r2_public_url else f"https://{os.environ.get('R2_ACCOUNT_ID', '899c353a058f3925d7adc62c2d2d5730')}.r2.cloudflarestorage.com/{AWS_STORAGE_BUCKET_NAME}/"
+    MEDIA_ROOT = ''
+else:
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Static files - responsible for static files
 STATIC_URL = '/static/'
@@ -153,7 +177,8 @@ STATICFILES_DIRS = [
 ]
 
 
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'  # Disabled for development
+if not _USE_R2:
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 
 # Login settings

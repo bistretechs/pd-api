@@ -1166,7 +1166,7 @@ class VendorViewSet(viewsets.ModelViewSet):
     queryset = Vendor.objects.all()
     serializer_class = VendorSerializer
     permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin | IsAccountManager]
-    filterset_fields = ["vps_score", "active"]
+    filterset_fields = ["vps_score_value", "active"]
     search_fields = ["name", "email", "phone", "services"]
 
     @decorators.action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsProductionTeam | IsAdmin])
@@ -2399,7 +2399,6 @@ class CostingEngineViewSet(viewsets.ViewSet):
             vendor_suggestions.append({
                 "vendor_id": pv.vendor.id,
                 "vendor_name": pv.vendor.name,
-                "vps_score": pv.vendor.vps_score,
                 "vps_score_value": float(pv.vendor.vps_score_value),
                 "priority": pv.priority,
             })

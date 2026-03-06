@@ -146,10 +146,10 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         
         stats = {
             'total_pos': pos.count(),
-            'active_pos': pos.exclude(status__in=['COMPLETED', 'CANCELLED']).count(),
-            'completed_pos': pos.filter(status='COMPLETED').count(),
+            'active_pos': pos.exclude(status__iregex=r'^(completed|cancelled)$').count(),
+            'completed_pos': pos.filter(status__iexact='completed').count(),
             'at_risk_pos': pos.filter(
-                status__in=['IN_PRODUCTION', 'AWAITING_APPROVAL'],
+                status__iregex=r'^(in_production|awaiting_approval)$',
                 required_by__lt=timezone.now().date()
             ).count(),
             'total_value': float(pos.aggregate(Sum('total_cost'))['total_cost__sum'] or 0),
@@ -773,17 +773,6 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
         )
         live_score = round(max(0.0, min(100.0, live_score)), 2)
 
-        if live_score >= 90:
-            live_grade = 'A'
-        elif live_score >= 75:
-            live_grade = 'B'
-        elif live_score >= 60:
-            live_grade = 'C'
-        elif live_score >= 45:
-            live_grade = 'D'
-        else:
-            live_grade = 'F'
-
         # Persist so stored value stays in sync
         vendor.vps_score_value = live_score
         vendor.performance_score = live_score
@@ -792,7 +781,6 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
         # Build response
         scorecard_data = {
             'overall_score': int(live_score),
-            'vps_grade': live_grade,
             'tax_status': 'Compliant with tax filing' if vendor.tax_pin else 'No tax info',
             'certifications': ['Certified Vendor'] if vendor.recommended else [],
 
@@ -947,7 +935,7 @@ class VendorActivePurchaseOrdersViewSet(viewsets.ReadOnlyModelViewSet):
             vendor = Vendor.objects.get(user=request.user)
             purchase_orders = PurchaseOrder.objects.filter(
                 vendor=vendor,
-                status__in=['NEW', 'ACCEPTED', 'IN_PRODUCTION', 'AWAITING_APPROVAL']
+                status__iregex=r'^(new|accepted|in_production|awaiting_approval)$'
             ).values('id', 'po_number', 'product_type').order_by('-created_at')
             
             return Response(list(purchase_orders), status=status.HTTP_200_OK)
