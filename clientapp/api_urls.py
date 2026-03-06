@@ -216,5 +216,5 @@ urlpatterns = router.urls + [
     path('v1/quotes/save-from-storefront/', storefront_views.SaveQuoteFromStorefrontView.as_view(), name='save-quote-from-storefront'),
 
     # Client Portal - Profile
-    path('v1/portal/me/', api_views.ClientPortalMeView.as_view(), name='portal-me'),
+    path('portal/me/', api_views.ClientPortalMeView.as_view(), name='portal-me'),
 ]
