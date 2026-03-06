@@ -37,32 +37,29 @@ from .permissions import IsVendor
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Purchase Orders.
-    Vendors can view their POs and update status/milestones.
+    ViewSet for Purchase Orders - Vendor Portal.
+    Vendors can view their assigned POs and update status/milestones.
     """
     queryset = PurchaseOrder.objects.all()
     serializer_class = PurchaseOrderSerializer
-    permission_classes = [IsVendor]
-    filterset_fields = ['vendor', 'status', 'milestone', 'job']
+    permission_classes = [AllowAny]
+    filterset_fields = ['status', 'milestone', 'job']
     search_fields = ['po_number', 'product_type', 'job__job_number']
     ordering_fields = ['created_at', 'required_by', 'status']
     ordering = ['-created_at']
     
     def get_queryset(self):
-        """
-        Filter POs based on user role:
-        - Vendors see only their POs
-        - Production team sees all POs
-        """
-        user = self.request.user
-        queryset = super().get_queryset()
-
-        # Filter by vendor if vendor_id is provided
-        vendor_id = self.request.query_params.get('vendor_id', None)
-        if vendor_id:
-            queryset = queryset.filter(vendor_id=vendor_id)
+        """Filter POs by authenticated vendor only"""
+        if not self.request.user.is_authenticated:
+            return PurchaseOrder.objects.none()
         
-        return queryset.select_related('job', 'vendor', 'job__client')
+        try:
+            vendor = Vendor.objects.get(user=self.request.user)
+            return PurchaseOrder.objects.filter(vendor=vendor).select_related(
+                'job', 'vendor', 'job__client'
+            )
+        except Vendor.DoesNotExist:
+            return PurchaseOrder.objects.none()
     
     @action(detail=True, methods=['post'])
     def accept(self, request, pk=None):
@@ -129,26 +126,33 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         })
     
     @action(detail=False, methods=['get'])
-    def vendor_dashboard(self, request):
-        """Get vendor dashboard statistics"""
-        vendor_id = request.query_params.get('vendor_id')
-        if not vendor_id:
+    def stats(self, request):
+        """Get vendor PO statistics"""
+        if not request.user.is_authenticated:
             return Response(
-                {'error': 'vendor_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED
             )
         
-        pos = PurchaseOrder.objects.filter(vendor_id=vendor_id)
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+        except Vendor.DoesNotExist:
+            return Response(
+                {'error': 'Vendor profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        pos = PurchaseOrder.objects.filter(vendor=vendor)
         
         stats = {
             'total_pos': pos.count(),
-            'active_pos': pos.exclude(status__in=['completed', 'cancelled']).count(),
-            'completed_pos': pos.filter(status='completed').count(),
-            'delayed_pos': pos.filter(
-                status__in=['in_production', 'quality_check'],
+            'active_pos': pos.exclude(status__in=['COMPLETED', 'CANCELLED']).count(),
+            'completed_pos': pos.filter(status='COMPLETED').count(),
+            'at_risk_pos': pos.filter(
+                status__in=['IN_PRODUCTION', 'AWAITING_APPROVAL'],
                 required_by__lt=timezone.now().date()
             ).count(),
-            'total_value': pos.aggregate(Sum('total_cost'))['total_cost__sum'] or 0,
+            'total_value': float(pos.aggregate(Sum('total_cost'))['total_cost__sum'] or 0),
         }
         
         return Response(stats)
