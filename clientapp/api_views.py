@@ -4111,6 +4111,68 @@ class ChangePasswordView(APIView):
         return Response({"detail": "Password changed successfully"}, status=status.HTTP_200_OK)
 
 
+# ===== Client Portal Profile (Me) =====
+
+class ClientPortalMeView(APIView):
+    permission_classes = [IsAuthenticated, IsClient]
+
+    def get(self, request):
+        try:
+            portal_user = ClientPortalUser.objects.select_related('user', 'client').get(
+                user=request.user, is_active=True
+            )
+        except ClientPortalUser.DoesNotExist:
+            return Response({'detail': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        user = portal_user.user
+        client = portal_user.client
+        return Response({
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'phone': client.phone,
+            'company': client.company,
+            'industry': client.industry,
+            'address': client.address,
+            'vat_tax_id': client.vat_tax_id,
+            'kra_pin': client.kra_pin,
+            'preferred_channel': client.preferred_channel,
+            'delivery_instructions': client.delivery_instructions or '',
+            'role': portal_user.role,
+            'client_id': client.client_id,
+        })
+
+    def patch(self, request):
+        try:
+            portal_user = ClientPortalUser.objects.select_related('user', 'client').get(
+                user=request.user, is_active=True
+            )
+        except ClientPortalUser.DoesNotExist:
+            return Response({'detail': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        user = portal_user.user
+        client = portal_user.client
+
+        user_fields = ['first_name', 'last_name', 'email']
+        updated_user_fields = [f for f in user_fields if f in request.data]
+        for field in updated_user_fields:
+            setattr(user, field, request.data[field])
+        if updated_user_fields:
+            user.save(update_fields=updated_user_fields)
+
+        client_editable_fields = [
+            'phone', 'company', 'industry', 'address',
+            'vat_tax_id', 'kra_pin', 'preferred_channel', 'delivery_instructions',
+        ]
+        updated_client_fields = [f for f in client_editable_fields if f in request.data]
+        for field in updated_client_fields:
+            setattr(client, field, request.data[field])
+        if updated_client_fields:
+            client.save(update_fields=updated_client_fields)
+
+        return self.get(request)
+
+
 # ===== Dashboard / Analytics =====
 
 class DashboardViewSet(viewsets.ViewSet):
