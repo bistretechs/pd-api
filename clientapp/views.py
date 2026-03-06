@@ -5008,29 +5008,40 @@ def login_redirect(request):
     Custom login redirect view that sends users to appropriate dashboard based on their group
     NOTE: This view should NOT have @login_required decorator
     """
-    # Check if user is authenticated
     if not request.user.is_authenticated:
         return redirect('login')
-    
+
     user = request.user
-    
-    # Superusers always go to admin dashboard
+
     if user.is_superuser:
         return redirect('admin_dashboard_index')
 
-    # Group-based redirects
     if user.groups.filter(name='Production Team').exists():
         return redirect('production2_dashboard')
     elif user.groups.filter(name='Account Manager').exists():
         return redirect('dashboard')
     elif user.groups.filter(name='Admin').exists() or user.is_staff:
         return redirect('admin_dashboard_index')
-    else:
-        from django.shortcuts import render
-        return render(request, 'no_group_error.html', {
-            'user': user,
-            'message': 'Your account is not assigned to any group. Please contact the administrator to assign you to either "Account Manager" or "Production Team" group.'
-        })
+
+    from django.conf import settings
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+
+    from .models import ClientPortalUser
+    if ClientPortalUser.objects.filter(user=user, is_active=True).exists():
+        return redirect(f'{frontend_url}/portal')
+
+    try:
+        from .models import Vendor
+        if Vendor.objects.filter(user=user, active=True).exists():
+            return redirect(f'{frontend_url}/vendor')
+    except Exception:
+        pass
+
+    from django.shortcuts import render
+    return render(request, 'no_group_error.html', {
+        'user': user,
+        'message': 'Your account is not assigned to any group. Please contact the administrator.',
+    })
 
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
