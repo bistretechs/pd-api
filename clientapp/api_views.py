@@ -3020,7 +3020,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
 class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = ActivityLog.objects.select_related("client", "created_by").all()
     serializer_class = ActivityLogSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsAdmin | IsProductionTeam]
     filterset_fields = ["client", "activity_type"]
     search_fields = ["title", "description"]
     ordering_fields = ["created_at"]
@@ -3749,6 +3749,14 @@ class SystemAlertViewSet(viewsets.ModelViewSet):
     serializer_class = SystemAlertSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
     filterset_fields = ["alert_type", "severity", "is_active", "is_dismissed"]
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            permission_classes = [IsAuthenticated, IsAdmin | IsProductionTeam]
+        else:
+            permission_classes = [IsAuthenticated, IsAdmin]
+
+        return [permission() for permission in permission_classes]
 
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['Production Team']))

@@ -6,14 +6,14 @@ from datetime import timedelta
 from decimal import Decimal
 
 from .models import Quote, Client, Lead, Job
-from .permissions import IsAccountManager, IsAdmin
+from .permissions import IsAccountManager, IsAdmin, IsProductionTeam
 
 
 class AnalyticsViewSet(viewsets.ViewSet):
     """
     Expose rich analytics from admin_dashboard.py for Account Manager portal.
     """
-    permission_classes = [IsAuthenticated, IsAccountManager | IsAdmin]
+    permission_classes = [IsAuthenticated, IsAccountManager | IsAdmin | IsProductionTeam]
 
     def list(self, request):
         """Return comprehensive analytics data."""

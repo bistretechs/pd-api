@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from .api_serializers import LPOSerializer
 from .models import LPO
-from .permissions import IsAdmin, IsAccountManager
+from .permissions import IsAdmin, IsAccountManager, IsProductionTeam
 
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['Finance & Purchasing']))
@@ -19,7 +19,7 @@ from .permissions import IsAdmin, IsAccountManager
 class LPOViewSet(viewsets.ModelViewSet):
     queryset = LPO.objects.select_related("client", "quote", "created_by", "approved_by").all()
     serializer_class = LPOSerializer
-    permission_classes = [IsAuthenticated, IsAdmin | IsAccountManager]
+    permission_classes = [IsAuthenticated, IsAdmin | IsAccountManager | IsProductionTeam]
     filterset_fields = {
         "status": ["exact"],
         "client": ["exact"],
