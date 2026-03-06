@@ -339,6 +339,11 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         invoice.submitted_at = timezone.now()
         invoice.save()
 
+        po = invoice.purchase_order
+        if not po.invoice_sent:
+            po.invoice_sent = True
+            po.save(update_fields=['invoice_sent'])
+
         try:
             vendor = Vendor.objects.get(user=request.user)
             _notify_invoice_submitted(invoice, vendor)
@@ -1187,16 +1192,25 @@ class VendorSelfInfoViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['patch'], permission_classes=[AllowAny])
     def update_me(self, request):
-        """Update current vendor's info"""
+        """Update current vendor's info (vendor-editable fields only)"""
         if not request.user or not request.user.is_authenticated:
             return Response(
                 {'error': 'Authentication required'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
-        
+
+        VENDOR_READONLY_FIELDS = {
+            'name', 'email', 'active', 'user', 'vps_score_value',
+            'vps_score_label', 'vps_score_color', 'id',
+        }
+        allowed_data = {
+            k: v for k, v in request.data.items()
+            if k not in VENDOR_READONLY_FIELDS
+        }
+
         try:
             vendor = Vendor.objects.get(user=request.user, active=True)
-            serializer = VendorSerializer(vendor, data=request.data, partial=True)
+            serializer = VendorSerializer(vendor, data=allowed_data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 return Response({
