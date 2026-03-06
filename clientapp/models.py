@@ -4961,10 +4961,12 @@ class VendorInvoice(models.Model):
 class PurchaseOrderProof(models.Model):
     purchase_order = models.ForeignKey('PurchaseOrder', on_delete=models.CASCADE, related_name='proofs')
     proof_image = models.ImageField(upload_to='po_proofs/')
+    description = models.TextField(blank=True, help_text="Notes or context about this proof")
     submitted_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=20, default='pending')
     reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True, null=True)
 
 
 class PurchaseOrderIssue(models.Model):

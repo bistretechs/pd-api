@@ -22,23 +22,52 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class VendorInvoiceSerializer(serializers.ModelSerializer):
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    purchase_order = serializers.SerializerMethodField()
+    job_number = serializers.SerializerMethodField()
     vendor_name = serializers.ReadOnlyField(source='vendor.name')
     po_number = serializers.ReadOnlyField(source='purchase_order.po_number')
 
     class Meta:
         model = VendorInvoice
-        fields = '__all__'
+        fields = [
+            'id', 'invoice_number', 'vendor_invoice_ref', 'purchase_order', 
+            'job_number', 'invoice_date', 'due_date', 'line_items',
+            'subtotal', 'tax_rate', 'tax_amount', 'total_amount',
+            'status', 'invoice_file', 'rejection_reason',
+            'submitted_at', 'approved_at', 'paid_at',
+            'created_at', 'updated_at', 'vendor_name', 'po_number'
+        ]
         ref_name = 'VendorInvoiceVendor'
+    
+    def get_purchase_order(self, obj):
+        return {
+            'id': obj.purchase_order.id,
+            'po_number': obj.purchase_order.po_number,
+            'product_type': obj.purchase_order.product_type,
+        }
+    
+    def get_job_number(self, obj):
+        return obj.job.job_number if obj.job else ""
 
 class PurchaseOrderProofSerializer(serializers.ModelSerializer):
+    purchase_order = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    proof_type_display = serializers.CharField(source='get_proof_type_display', read_only=True)
 
     class Meta:
         model = PurchaseOrderProof
-        fields = '__all__'
+        fields = [
+            'id', 'purchase_order', 'proof_image', 'description',
+            'submitted_at', 'status', 'status_display',
+            'reviewed_by', 'reviewed_at', 'rejection_reason'
+        ]
         ref_name = 'PurchaseOrderProofVendor'
+    
+    def get_purchase_order(self, obj):
+        return {
+            'id': obj.purchase_order.id,
+            'po_number': obj.purchase_order.po_number,
+            'product_type': obj.purchase_order.product_type,
+        }
 
 class PurchaseOrderIssueSerializer(serializers.ModelSerializer):
     purchase_order = serializers.SerializerMethodField()

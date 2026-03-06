@@ -173,7 +173,7 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
     """
     queryset = VendorInvoice.objects.all()
     serializer_class = VendorInvoiceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filterset_fields = ['vendor', 'status', 'purchase_order', 'job']
     search_fields = ['invoice_number', 'vendor_invoice_ref']
     ordering_fields = ['created_at', 'invoice_date', 'due_date', 'total_amount']
@@ -181,14 +181,119 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter invoices by vendor"""
-        user = self.request.user
-        queryset = super().get_queryset()
+        if not self.request.user.is_authenticated:
+            return VendorInvoice.objects.none()
         
-        vendor_id = self.request.query_params.get('vendor_id', None)
-        if vendor_id:
-            queryset = queryset.filter(vendor_id=vendor_id)
+        try:
+            vendor = Vendor.objects.get(user=self.request.user)
+            return VendorInvoice.objects.filter(vendor=vendor).select_related(
+                'vendor', 'purchase_order', 'job'
+            )
+        except Vendor.DoesNotExist:
+            return VendorInvoice.objects.none()
+    
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
         
-        return queryset.select_related('vendor', 'purchase_order', 'job')
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+        except Vendor.DoesNotExist:
+            return Response(
+                {"error": "Vendor profile not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        purchase_order_id = request.data.get('purchase_order_id')
+        
+        try:
+            purchase_order = PurchaseOrder.objects.get(
+                id=purchase_order_id,
+                vendor=vendor
+            )
+        except PurchaseOrder.DoesNotExist:
+            return Response(
+                {"error": "Purchase order not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Calculate totals
+        line_items = request.data.get('line_items', [])
+        subtotal = request.data.get('subtotal', 0)
+        tax_rate = request.data.get('tax_rate', 16)
+        
+        invoice = VendorInvoice.objects.create(
+            vendor=vendor,
+            purchase_order=purchase_order,
+            job=purchase_order.job,
+            vendor_invoice_ref=request.data.get('vendor_invoice_ref', ''),
+            invoice_date=request.data.get('invoice_date'),
+            due_date=request.data.get('due_date'),
+            line_items=line_items,
+            subtotal=subtotal,
+            tax_rate=tax_rate,
+            status='draft'
+        )
+        
+        serializer = self.get_serializer(invoice)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get invoice statistics for vendor"""
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+        except Vendor.DoesNotExist:
+            return Response({
+                'draft_count': 0,
+                'submitted_count': 0,
+                'approved_count': 0,
+                'paid_count': 0,
+                'rejected_count': 0,
+                'total_pending_amount': 0,
+                'total_paid_amount': 0,
+                'current_month_amount': 0,
+            })
+        
+        invoices = VendorInvoice.objects.filter(vendor=vendor)
+        
+        from django.db.models import Sum
+        from datetime import datetime
+        
+        stats = {
+            'draft_count': invoices.filter(status='draft').count(),
+            'submitted_count': invoices.filter(status='submitted').count(),
+            'approved_count': invoices.filter(status='approved').count(),
+            'paid_count': invoices.filter(status='paid').count(),
+            'rejected_count': invoices.filter(status='rejected').count(),
+            'total_pending_amount': float(
+                invoices.filter(status__in=['submitted', 'approved']).aggregate(
+                    total=Sum('total_amount')
+                )['total'] or 0
+            ),
+            'total_paid_amount': float(
+                invoices.filter(status='paid').aggregate(
+                    total=Sum('total_amount')
+                )['total'] or 0
+            ),
+            'current_month_amount': float(
+                invoices.filter(
+                    invoice_date__month=datetime.now().month,
+                    invoice_date__year=datetime.now().year
+                ).aggregate(total=Sum('total_amount'))['total'] or 0
+            ),
+        }
+        
+        return Response(stats)
     
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
@@ -205,11 +310,8 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         invoice.submitted_at = timezone.now()
         invoice.save()
         
-        return Response({
-            'status': 'success',
-            'message': 'Invoice submitted for review',
-            'invoice_number': invoice.invoice_number
-        })
+        serializer = self.get_serializer(invoice)
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -257,13 +359,107 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
 
 
 class PurchaseOrderProofViewSet(viewsets.ModelViewSet):
-    """ViewSet for Purchase Order Proofs"""
+    """ViewSet for Purchase Order Proofs - Vendor Portal"""
     queryset = PurchaseOrderProof.objects.all()
     serializer_class = PurchaseOrderProofSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filterset_fields = ['purchase_order', 'status']
     ordering_fields = ['submitted_at']
     ordering = ['-submitted_at']
+    
+    def get_queryset(self):
+        if not self.request.user.is_authenticated:
+            return PurchaseOrderProof.objects.none()
+        
+        try:
+            vendor = Vendor.objects.get(user=self.request.user)
+            return PurchaseOrderProof.objects.filter(
+                purchase_order__vendor=vendor
+            ).select_related('purchase_order', 'reviewed_by')
+        except Vendor.DoesNotExist:
+            return PurchaseOrderProof.objects.none()
+    
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+        except Vendor.DoesNotExist:
+            return Response(
+                {'error': 'Vendor profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        purchase_order_id = request.data.get('purchase_order_id')
+        if not purchase_order_id:
+            return Response(
+                {'error': 'purchase_order_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            purchase_order = PurchaseOrder.objects.get(
+                id=purchase_order_id,
+                vendor=vendor
+            )
+        except PurchaseOrder.DoesNotExist:
+            return Response(
+                {'error': 'Purchase order not found or you do not have access'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        proof_image = request.FILES.get('proof_image')
+        if not proof_image:
+            return Response(
+                {'error': 'proof_image file is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        description = request.data.get('description', '')
+        
+        proof = PurchaseOrderProof.objects.create(
+            purchase_order=purchase_order,
+            proof_image=proof_image,
+            description=description,
+            status='pending'
+        )
+        
+        serializer = self.get_serializer(proof)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get proof statistics for vendor"""
+        if not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+        except Vendor.DoesNotExist:
+            return Response(
+                {'error': 'Vendor profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        proofs = PurchaseOrderProof.objects.filter(
+            purchase_order__vendor=vendor
+        )
+        
+        stats = {
+            'total_submitted': proofs.count(),
+            'pending_review': proofs.filter(status='pending').count(),
+            'approved': proofs.filter(status='approved').count(),
+            'rejected': proofs.filter(status='rejected').count(),
+        }
+        
+        return Response(stats)
     
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
