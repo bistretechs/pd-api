@@ -763,13 +763,39 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
                 'description': f"Defect rate at {defect_rate:.1f}% - {failed_qc} failed out of {total_qc} inspections"
             })
         
+        # Compute overall score from live metrics (server-side, not stored value)
+        # Weights: on-time 35% | quality/QC 35% | acceptance 15% | defect penalty 15%
+        live_score = (
+            on_time_rate * 0.35
+            + qc_pass_rate * 0.35
+            + acceptance_rate * 0.15
+            + max(0.0, 100.0 - defect_rate) * 0.15
+        )
+        live_score = round(max(0.0, min(100.0, live_score)), 2)
+
+        if live_score >= 90:
+            live_grade = 'A'
+        elif live_score >= 75:
+            live_grade = 'B'
+        elif live_score >= 60:
+            live_grade = 'C'
+        elif live_score >= 45:
+            live_grade = 'D'
+        else:
+            live_grade = 'F'
+
+        # Persist so stored value stays in sync
+        vendor.vps_score_value = live_score
+        vendor.performance_score = live_score
+        vendor.save(update_fields=['vps_score_value', 'performance_score'])
+
         # Build response
         scorecard_data = {
-            'overall_score': int(vendor.vps_score_value),
-            'vps_grade': vendor.vps_score,
+            'overall_score': int(live_score),
+            'vps_grade': live_grade,
             'tax_status': 'Compliant with tax filing' if vendor.tax_pin else 'No tax info',
             'certifications': ['Certified Vendor'] if vendor.recommended else [],
-            
+
             # Metrics
             'on_time_rate': round(on_time_rate, 1),
             'quality_score': round(qc_pass_rate, 1),
@@ -780,7 +806,7 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
             'response_time': round(avg_response_time, 1),
             'ghosting_incidents': ghosting_incidents,
             'decline_rate': round(decline_rate, 1),
-            
+
             # Insights
             'insights': insights,
         }

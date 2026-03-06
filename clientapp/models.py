@@ -2916,7 +2916,6 @@ class Vendor(models.Model):
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0)
     quality_rating = models.CharField(max_length=20, blank=True, null=True)
     reliability_rating = models.CharField(max_length=20, blank=True, null=True)
-    vps_score = models.CharField(max_length=10, blank=True, help_text="Grade e.g. A, B, C")
     vps_score_value = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     performance_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     
@@ -2944,20 +2943,53 @@ class Vendor(models.Model):
         ).count()
     
     def update_performance_score(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
         completed_jobs = self.purchase_orders.filter(status='COMPLETED')
         total = completed_jobs.count()
+
         if total == 0:
             self.performance_score = 0
-            self.save()
+            self.vps_score_value = 0
+            self.save(update_fields=['performance_score', 'vps_score_value'])
             return
+
+        # On-time delivery (40% weight)
         on_time = completed_jobs.filter(completed_on_time=True).count()
-        issues = self.purchase_orders.filter(has_issues=True).count()
         on_time_rate = (on_time / total) * 100
-        issue_penalty = (issues / total) * 10
-        score = max(0, min(100, on_time_rate - issue_penalty))
-        self.performance_score = round(score, 2)
-        self.vps_score_value = self.performance_score
-        self.save()
+
+        # Issue penalty — each job with issues drags score down (20% weight)
+        issues = self.purchase_orders.filter(has_issues=True).count()
+        issue_rate = (issues / total) * 100
+
+        # QC pass rate over last 90 days (40% weight)
+        qc_inspections = self.qc_inspections.filter(
+            created_at__gte=timezone.now() - timedelta(days=90)
+        ) if hasattr(self, 'qc_inspections') else []
+        qc_total = len(qc_inspections) if hasattr(qc_inspections, '__len__') else qc_inspections.count()
+        qc_passed = qc_inspections.filter(status='passed').count() if qc_total > 0 else 0
+        qc_rate = (qc_passed / qc_total * 100) if qc_total > 0 else on_time_rate
+
+        score = (on_time_rate * 0.40) + (qc_rate * 0.40) + (max(0, 100 - issue_rate) * 0.20)
+        score = round(max(0, min(100, score)), 2)
+
+        self.performance_score = score
+        self.vps_score_value = score
+        self.save(update_fields=['performance_score', 'vps_score_value'])
+
+    @property
+    def vps_score(self) -> str:
+        score = float(self.vps_score_value)
+        if score >= 90:
+            return 'A'
+        if score >= 75:
+            return 'B'
+        if score >= 60:
+            return 'C'
+        if score >= 45:
+            return 'D'
+        return 'F'
     
     def get_current_workload(self):
         """Get count of active jobs for vendor"""

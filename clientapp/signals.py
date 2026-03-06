@@ -13,6 +13,24 @@ from decimal import Decimal
 # Track previous values before save
 _product_previous_values = {}
 
+
+# ──────────────────────────────────────────────
+# Vendor Performance Score — auto-recalculate
+# ──────────────────────────────────────────────
+
+@receiver(post_save, sender='clientapp.PurchaseOrder')
+def recalculate_vps_on_purchase_order_save(sender, instance, **kwargs):
+    vendor = getattr(instance, 'vendor', None)
+    if vendor is not None:
+        vendor.update_performance_score()
+
+
+@receiver(post_save, sender='clientapp.QCInspection')
+def recalculate_vps_on_qc_inspection_save(sender, instance, **kwargs):
+    vendor = getattr(instance, 'vendor', None)
+    if vendor is not None:
+        vendor.update_performance_score()
+
 @receiver(pre_save, sender=Product)
 def track_product_changes_pre_save(sender, instance, **kwargs):
     """
