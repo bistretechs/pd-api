@@ -587,3 +587,143 @@ class VendorPerformanceViewSet(viewsets.ViewSet):
         
         serializer = VendorPerformanceSerializer(scorecard_data)
         return Response(serializer.data)
+
+
+class VendorIssuesViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for vendor to report and view issues with purchase orders.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = PurchaseOrderIssueSerializer
+    
+    def get_queryset(self):
+        if not self.request.user.is_authenticated:
+            return PurchaseOrderIssue.objects.none()
+        
+        try:
+            vendor = Vendor.objects.get(user=self.request.user)
+            return PurchaseOrderIssue.objects.filter(
+                purchase_order__vendor=vendor
+            ).select_related('purchase_order').order_by('-created_at')
+        except Vendor.DoesNotExist:
+            return PurchaseOrderIssue.objects.none()
+    
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+        except Vendor.DoesNotExist:
+            return Response(
+                {"error": "Vendor profile not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        purchase_order_id = request.data.get('purchase_order_id')
+        
+        try:
+            purchase_order = PurchaseOrder.objects.get(
+                id=purchase_order_id,
+                vendor=vendor
+            )
+        except PurchaseOrder.DoesNotExist:
+            return Response(
+                {"error": "Purchase order not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        issue = PurchaseOrderIssue.objects.create(
+            purchase_order=purchase_order,
+            issue_type=request.data.get('issue_type', 'other'),
+            description=request.data.get('description', ''),
+            status='open'
+        )
+        
+        serializer = self.get_serializer(issue)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MaterialSubstitutionViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for vendors to create and view material substitution requests.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = MaterialSubstitutionRequestSerializer
+    
+    def get_queryset(self):
+        if not self.request.user.is_authenticated:
+            return MaterialSubstitutionRequest.objects.none()
+        
+        try:
+            vendor = Vendor.objects.get(user=self.request.user)
+            return MaterialSubstitutionRequest.objects.filter(
+                purchase_order__vendor=vendor
+            ).select_related('purchase_order').order_by('-created_at')
+        except Vendor.DoesNotExist:
+            return MaterialSubstitutionRequest.objects.none()
+    
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+        except Vendor.DoesNotExist:
+            return Response(
+                {"error": "Vendor profile not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        purchase_order_id = request.data.get('purchase_order_id')
+        
+        try:
+            purchase_order = PurchaseOrder.objects.get(
+                id=purchase_order_id,
+                vendor=vendor
+            )
+        except PurchaseOrder.DoesNotExist:
+            return Response(
+                {"error": "Purchase order not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        substitution = MaterialSubstitutionRequest.objects.create(
+            purchase_order=purchase_order,
+            original_material=request.data.get('original_material', ''),
+            proposed_material=request.data.get('substitute_material', ''),
+            match_percentage=request.data.get('match_percentage', 100),
+            justification=request.data.get('reason', ''),
+            status='pending'
+        )
+        
+        serializer = self.get_serializer(substitution)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class VendorActivePurchaseOrdersViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet to return vendor's active purchase orders for dropdown selections.
+    """
+    permission_classes = [AllowAny]
+    
+    def list(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response([], status=status.HTTP_200_OK)
+        
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+            purchase_orders = PurchaseOrder.objects.filter(
+                vendor=vendor,
+                status__in=['NEW', 'ACCEPTED', 'IN_PRODUCTION', 'AWAITING_APPROVAL']
+            ).values('id', 'po_number', 'product_type').order_by('-created_at')
+            
+            return Response(list(purchase_orders), status=status.HTTP_200_OK)
+        except Vendor.DoesNotExist:
+            return Response([], status=status.HTTP_200_OK)

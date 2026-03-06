@@ -148,10 +148,9 @@ router.register("vendor-portal-pos", vendor_portal_views.PurchaseOrderViewSet, b
 router.register("vendor-portal-invoices", vendor_portal_views.VendorInvoiceViewSet, basename="vendor-portal-invoice")
 router.register("vendor-portal-proofs", vendor_portal_views.PurchaseOrderProofViewSet, basename="vendor-portal-proof")
 router.register("vendor-performance", vendor_portal_views.VendorPerformanceViewSet, basename="vendor-performance")
-router.register("vendor-portal-issues", vendor_portal_views.PurchaseOrderIssueViewSet, basename="vendor-portal-issue")
-router.register("vendor-portal-notes", vendor_portal_views.PurchaseOrderNoteViewSet, basename="vendor-portal-note")
-router.register("vendor-portal-substitutions", vendor_portal_views.MaterialSubstitutionRequestViewSet, basename="vendor-portal-substitution")
-router.register("vendor-portal-performance", vendor_portal_views.VendorPerformanceViewSet, basename="vendor-portal-performance")
+router.register("vendor-portal-issues", vendor_portal_views.VendorIssuesViewSet, basename="vendor-portal-issues")
+router.register("vendor-portal-material-substitutions", vendor_portal_views.MaterialSubstitutionViewSet, basename="vendor-portal-substitutions")
+router.register("vendor-portal-active-pos", vendor_portal_views.VendorActivePurchaseOrdersViewSet, basename="vendor-portal-active-pos")
 
 # Client Portal APIs
 router.register("client-portal-users", api_views.ClientPortalUserViewSet, basename="client-portal-user")
