@@ -23,6 +23,7 @@ from .models import (
     Vendor,
     QCInspection,
     JobVendorStage,
+    Notification,
 )
 from .vendor_portal_serializers import (
     PurchaseOrderSerializer,
@@ -532,6 +533,26 @@ def _notify_proof_uploaded(proof, vendor):
     except Exception:
         pass
 
+    notification_recipients = []
+    production_manager = getattr(job, 'person_in_charge', None)
+    if production_manager:
+        notification_recipients.append(production_manager)
+    account_manager = getattr(getattr(job, 'client', None), 'account_manager', None)
+    if account_manager and account_manager != production_manager:
+        notification_recipients.append(account_manager)
+
+    for user in notification_recipients:
+        try:
+            Notification.objects.create(
+                recipient=user,
+                notification_type='vendor_proof_uploaded',
+                title=f'Proof Uploaded – {po.po_number}',
+                message=f'{vendor.name} has uploaded a proof for {po.po_number} ({job.job_number} – {job.job_name}). Review and approve or reject.',
+                related_job=job,
+            )
+        except Exception:
+            pass
+
 
 def _notify_invoice_submitted(invoice, vendor):
     po = invoice.purchase_order
@@ -696,8 +717,8 @@ def _notify_invoice_submitted(invoice, vendor):
     )
 
     try:
-        from django.core.mail import EmailMultiAlternatives
-        msg = EmailMultiAlternatives(
+        from django.core.mail import EmailMultiAlternatives as _EMA
+        msg = _EMA(
             subject=subject,
             body=plain_body,
             from_email=django_settings.DEFAULT_FROM_EMAIL,
@@ -707,6 +728,26 @@ def _notify_invoice_submitted(invoice, vendor):
         msg.send(fail_silently=True)
     except Exception:
         pass
+
+    notification_recipients_inv = []
+    production_manager_inv = getattr(job, 'person_in_charge', None)
+    if production_manager_inv:
+        notification_recipients_inv.append(production_manager_inv)
+    account_manager_inv = getattr(getattr(job, 'client', None), 'account_manager', None)
+    if account_manager_inv and account_manager_inv != production_manager_inv:
+        notification_recipients_inv.append(account_manager_inv)
+
+    for user in notification_recipients_inv:
+        try:
+            Notification.objects.create(
+                recipient=user,
+                notification_type='vendor_invoice_submitted',
+                title=f'Invoice Submitted – {invoice.invoice_number}',
+                message=f'{vendor.name} has submitted invoice {invoice.invoice_number} for {po.po_number} totalling {formatted_total}. Please review.',
+                related_job=job,
+            )
+        except Exception:
+            pass
 
 
 class PurchaseOrderProofViewSet(viewsets.ModelViewSet):
@@ -846,6 +887,180 @@ class PurchaseOrderProofViewSet(viewsets.ModelViewSet):
         return Response({'status': 'success', 'message': 'Proof rejected'})
 
 
+def _notify_issue_raised(issue, vendor):
+    po = issue.purchase_order
+    job = po.job
+
+    recipients = []
+    production_manager = getattr(job, 'person_in_charge', None)
+    if production_manager and production_manager.email:
+        recipients.append(production_manager.email)
+    account_manager = getattr(getattr(job, 'client', None), 'account_manager', None)
+    if account_manager and account_manager.email and account_manager.email not in recipients:
+        recipients.append(account_manager.email)
+
+    subject = f"[PrintDuka] Issue Raised \u2013 {po.po_number} ({vendor.name})"
+    plain_body = (
+        f"A vendor has raised an issue that requires your attention.\n\n"
+        f"Vendor:     {vendor.name}\n"
+        f"PO Number:  {po.po_number}\n"
+        f"Job:        {job.job_number} \u2013 {job.job_name}\n"
+        f"Issue Type: {issue.issue_type}\n"
+        f"Description:\n{issue.description}\n"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html lang=\"en\">
+<head><meta charset=\"UTF-8\"><title>Issue Raised</title></head>
+<body style=\"margin:0;padding:0;background-color:#f0f4f8;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;\">
+  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f0f4f8;padding:40px 0;\">
+    <tr><td align=\"center\">
+      <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;width:100%;\"> 
+        <tr><td style=\"background-color:#093756;border-radius:8px 8px 0 0;padding:32px 40px;text-align:center;\">
+          <h1 style=\"margin:0;color:#f6b619;font-size:24px;font-weight:800;letter-spacing:1px;\">PRINT<span style=\"color:#ffffff;\">DUKA</span></h1>
+          <p style=\"margin:8px 0 0;color:#a8c4d8;font-size:12px;letter-spacing:2px;text-transform:uppercase;\">Vendor Management System</p>
+        </td></tr>
+        <tr><td style=\"background-color:#ffffff;padding:40px;\">
+          <p style=\"margin:0 0 24px;color:#333333;font-size:15px;line-height:1.6;\">A vendor has raised an issue that requires your attention.</p>
+          <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:28px;\">
+            <tr><td colspan=\"2\" style=\"background-color:#093756;padding:12px 16px;\"><span style=\"color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;\">Issue Details</span></td></tr>
+            <tr style=\"background-color:#f8fafc;\"><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">PO Number</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:700;border-bottom:1px solid #e8ecf0;\">{po.po_number}</td></tr>
+            <tr><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">Vendor</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;\">{vendor.name}</td></tr>
+            <tr style=\"background-color:#f8fafc;\"><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">Job</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;\">{job.job_number} \u2013 {job.job_name}</td></tr>
+            <tr><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;\">Issue Type</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:600;\">{issue.issue_type}</td></tr>
+          </table>
+          <div style=\"background-color:#f8fafc;border:1px solid #e8ecf0;border-radius:6px;padding:16px;margin-bottom:28px;\">
+            <p style=\"margin:0 0 8px;color:#777777;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;\">Description</p>
+            <p style=\"margin:0;color:#333333;font-size:14px;line-height:1.6;\">{issue.description}</p>
+          </div>
+        </td></tr>
+        <tr><td style=\"background-color:#fff8e6;border-left:4px solid #f6b619;padding:16px 40px;\"><p style=\"margin:0;color:#7a5c00;font-size:13px;\"><strong>Action Required:</strong> Please review and resolve this issue promptly to avoid production delays.</p></td></tr>
+        <tr><td style=\"background-color:#093756;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;\"><p style=\"margin:0 0 4px;color:#a8c4d8;font-size:12px;\">This is an automated notification from PrintDuka.</p><p style=\"margin:0;color:#6b8fa8;font-size:11px;\">\u00a9 2026 PrintDuka. All rights reserved.</p></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    if recipients:
+        try:
+            from django.core.mail import EmailMultiAlternatives as _EMA
+            msg = _EMA(subject=subject, body=plain_body, from_email=django_settings.DEFAULT_FROM_EMAIL, to=recipients)
+            msg.attach_alternative(html_body, "text/html")
+            msg.send(fail_silently=True)
+        except Exception:
+            pass
+
+    notification_recipients = [r for r in [
+        getattr(job, 'person_in_charge', None),
+        getattr(getattr(job, 'client', None), 'account_manager', None),
+    ] if r]
+    seen = set()
+    for user in notification_recipients:
+        if user.pk in seen:
+            continue
+        seen.add(user.pk)
+        try:
+            Notification.objects.create(
+                recipient=user,
+                notification_type='vendor_issue_raised',
+                title=f'Issue Raised \u2013 {po.po_number}',
+                message=f'{vendor.name} raised a "{issue.issue_type}" issue on {po.po_number} ({job.job_number}). Please review.',
+                related_job=job,
+            )
+        except Exception:
+            pass
+
+
+def _notify_substitution_requested(sub_request, vendor):
+    po = sub_request.purchase_order
+    job = po.job
+
+    recipients = []
+    production_manager = getattr(job, 'person_in_charge', None)
+    if production_manager and production_manager.email:
+        recipients.append(production_manager.email)
+    account_manager = getattr(getattr(job, 'client', None), 'account_manager', None)
+    if account_manager and account_manager.email and account_manager.email not in recipients:
+        recipients.append(account_manager.email)
+
+    subject = f"[PrintDuka] Material Substitution Request \u2013 {po.po_number} ({vendor.name})"
+    plain_body = (
+        f"A vendor has requested a material substitution.\n\n"
+        f"Vendor:            {vendor.name}\n"
+        f"PO Number:         {po.po_number}\n"
+        f"Job:               {job.job_number} \u2013 {job.job_name}\n"
+        f"Original Material: {sub_request.original_material}\n"
+        f"Proposed Material: {sub_request.proposed_material}\n"
+        f"Match:             {sub_request.match_percentage}%\n"
+        f"Justification:\n{sub_request.justification}\n"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html lang=\"en\">
+<head><meta charset=\"UTF-8\"><title>Material Substitution Request</title></head>
+<body style=\"margin:0;padding:0;background-color:#f0f4f8;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;\">
+  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f0f4f8;padding:40px 0;\">
+    <tr><td align=\"center\">
+      <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;width:100%;\"> 
+        <tr><td style=\"background-color:#093756;border-radius:8px 8px 0 0;padding:32px 40px;text-align:center;\">
+          <h1 style=\"margin:0;color:#f6b619;font-size:24px;font-weight:800;letter-spacing:1px;\">PRINT<span style=\"color:#ffffff;\">DUKA</span></h1>
+          <p style=\"margin:8px 0 0;color:#a8c4d8;font-size:12px;letter-spacing:2px;text-transform:uppercase;\">Vendor Management System</p>
+        </td></tr>
+        <tr><td style=\"background-color:#ffffff;padding:40px;\">
+          <p style=\"margin:0 0 24px;color:#333333;font-size:15px;line-height:1.6;\">A vendor has requested to substitute a material. Please review and approve or reject.</p>
+          <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:28px;\">
+            <tr><td colspan=\"2\" style=\"background-color:#093756;padding:12px 16px;\"><span style=\"color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;\">Substitution Details</span></td></tr>
+            <tr style=\"background-color:#f8fafc;\"><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">PO Number</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:700;border-bottom:1px solid #e8ecf0;\">{po.po_number}</td></tr>
+            <tr><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">Vendor</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;\">{vendor.name}</td></tr>
+            <tr style=\"background-color:#f8fafc;\"><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">Job</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;\">{job.job_number} \u2013 {job.job_name}</td></tr>
+            <tr><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">Original Material</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;\">{sub_request.original_material}</td></tr>
+            <tr style=\"background-color:#f8fafc;\"><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;\">Proposed Material</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;\">{sub_request.proposed_material}</td></tr>
+            <tr><td style=\"padding:10px 16px;color:#555555;font-size:14px;width:40%;\">Match</td><td style=\"padding:10px 16px;color:#093756;font-size:14px;font-weight:700;\">{sub_request.match_percentage}%</td></tr>
+          </table>
+          <div style=\"background-color:#f8fafc;border:1px solid #e8ecf0;border-radius:6px;padding:16px;\">
+            <p style=\"margin:0 0 8px;color:#777777;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;\">Justification</p>
+            <p style=\"margin:0;color:#333333;font-size:14px;line-height:1.6;\">{sub_request.justification}</p>
+          </div>
+        </td></tr>
+        <tr><td style=\"background-color:#fff8e6;border-left:4px solid #f6b619;padding:16px 40px;\"><p style=\"margin:0;color:#7a5c00;font-size:13px;\"><strong>Action Required:</strong> Approve or reject this substitution request in the admin portal.</p></td></tr>
+        <tr><td style=\"background-color:#093756;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;\"><p style=\"margin:0 0 4px;color:#a8c4d8;font-size:12px;\">This is an automated notification from PrintDuka.</p><p style=\"margin:0;color:#6b8fa8;font-size:11px;\">\u00a9 2026 PrintDuka. All rights reserved.</p></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    if recipients:
+        try:
+            from django.core.mail import EmailMultiAlternatives as _EMA
+            msg = _EMA(subject=subject, body=plain_body, from_email=django_settings.DEFAULT_FROM_EMAIL, to=recipients)
+            msg.attach_alternative(html_body, "text/html")
+            msg.send(fail_silently=True)
+        except Exception:
+            pass
+
+    notification_recipients = [r for r in [
+        getattr(job, 'person_in_charge', None),
+        getattr(getattr(job, 'client', None), 'account_manager', None),
+    ] if r]
+    seen = set()
+    for user in notification_recipients:
+        if user.pk in seen:
+            continue
+        seen.add(user.pk)
+        try:
+            Notification.objects.create(
+                recipient=user,
+                notification_type='vendor_substitution_requested',
+                title=f'Substitution Request \u2013 {po.po_number}',
+                message=f'{vendor.name} requested to substitute "{sub_request.original_material}" with "{sub_request.proposed_material}" ({sub_request.match_percentage}% match) on {po.po_number}.',
+                related_job=job,
+            )
+        except Exception:
+            pass
+
+
 class PurchaseOrderIssueViewSet(viewsets.ModelViewSet):
     """ViewSet for Purchase Order Issues"""
     queryset = PurchaseOrderIssue.objects.all()
@@ -854,7 +1069,15 @@ class PurchaseOrderIssueViewSet(viewsets.ModelViewSet):
     filterset_fields = ['purchase_order', 'issue_type', 'status']
     ordering_fields = ['created_at']
     ordering = ['-created_at']
-    
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        try:
+            vendor = Vendor.objects.get(user=self.request.user)
+            _notify_issue_raised(instance, vendor)
+        except Vendor.DoesNotExist:
+            pass
+
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
         """Resolve issue"""
@@ -892,7 +1115,15 @@ class MaterialSubstitutionRequestViewSet(viewsets.ModelViewSet):
     filterset_fields = ['purchase_order', 'status']
     ordering_fields = ['created_at']
     ordering = ['-created_at']
-    
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        try:
+            vendor = Vendor.objects.get(user=self.request.user)
+            _notify_substitution_requested(instance, vendor)
+        except Vendor.DoesNotExist:
+            pass
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Approve substitution request"""

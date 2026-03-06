@@ -3296,6 +3296,10 @@ class Notification(models.Model):
         ('convert_lead', 'Convert Lead to Client'),
         ('delivery_ready', 'Delivery Ready for AM'),
         ('job_completed', 'Job Completed'),
+        ('vendor_proof_uploaded', 'Vendor Proof Uploaded'),
+        ('vendor_invoice_submitted', 'Vendor Invoice Submitted'),
+        ('vendor_issue_raised', 'Vendor Issue Raised'),
+        ('vendor_substitution_requested', 'Vendor Substitution Requested'),
         ('general', 'General Notification'),
     ]
     
