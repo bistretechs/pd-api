@@ -4,6 +4,8 @@
 
 from django.utils import timezone
 from django.db.models import Sum, Count, Avg, Q, F
+from django.core.mail import send_mail
+from django.conf import settings as django_settings
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -224,16 +226,34 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Calculate totals
-        line_items = request.data.get('line_items', [])
-        subtotal = request.data.get('subtotal', 0)
-        tax_rate = request.data.get('tax_rate', 16)
-        
+        import uuid as _uuid
+        from datetime import datetime as _dt
+
+        def _generate_vendor_ref():
+            base = f"VND-{_dt.now().strftime('%Y-%m')}-{_uuid.uuid4().hex[:6].upper()}"
+            while VendorInvoice.objects.filter(vendor_invoice_ref=base).exists():
+                base = f"VND-{_dt.now().strftime('%Y-%m')}-{_uuid.uuid4().hex[:6].upper()}"
+            return base
+
+        import json as _json
+
+        line_items_raw = request.data.get('line_items', [])
+        if isinstance(line_items_raw, str):
+            try:
+                line_items = _json.loads(line_items_raw)
+            except _json.JSONDecodeError:
+                line_items = []
+        else:
+            line_items = line_items_raw
+
+        subtotal = float(request.data.get('subtotal', 0) or 0)
+        tax_rate = float(request.data.get('tax_rate', 16) or 16)
+
         invoice = VendorInvoice.objects.create(
             vendor=vendor,
             purchase_order=purchase_order,
             job=purchase_order.job,
-            vendor_invoice_ref=request.data.get('vendor_invoice_ref', ''),
+            vendor_invoice_ref=_generate_vendor_ref(),
             invoice_date=request.data.get('invoice_date'),
             due_date=request.data.get('due_date'),
             line_items=line_items,
@@ -241,7 +261,11 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
             tax_rate=tax_rate,
             status='draft'
         )
-        
+
+        if request.FILES.get('invoice_file'):
+            invoice.invoice_file = request.FILES['invoice_file']
+            invoice.save(update_fields=['invoice_file'])
+
         serializer = self.get_serializer(invoice)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
@@ -313,7 +337,15 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         invoice.status = 'submitted'
         invoice.submitted_at = timezone.now()
         invoice.save()
-        
+
+        try:
+            vendor = Vendor.objects.get(user=request.user)
+            _notify_invoice_submitted(invoice, vendor)
+        except Exception as _notify_err:
+            import traceback
+            traceback.print_exc()
+            pass
+
         serializer = self.get_serializer(invoice)
         return Response(serializer.data)
     
@@ -360,6 +392,321 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
             'message': 'Invoice rejected',
             'invoice_number': invoice.invoice_number
         })
+
+
+def _notify_proof_uploaded(proof, vendor):
+    po = proof.purchase_order
+    job = po.job
+
+    recipients = []
+
+    production_manager = getattr(job, 'person_in_charge', None)
+    if production_manager and production_manager.email:
+        recipients.append(production_manager.email)
+
+    account_manager = getattr(getattr(job, 'client', None), 'account_manager', None)
+    if account_manager and account_manager.email and account_manager.email not in recipients:
+        recipients.append(account_manager.email)
+
+    if not recipients:
+        return
+
+    subject = f"[PrintDuka] Proof Uploaded – {po.po_number} ({vendor.name})"
+
+    description_row = f"""
+        <tr>
+          <td style="padding:6px 0;color:#555555;font-size:14px;border-bottom:1px solid #e8ecf0;">Vendor Notes</td>
+          <td style="padding:6px 0;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{proof.description}</td>
+        </tr>""" if proof.description else ""
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proof Uploaded</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f4f8;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+
+  <!-- Wrapper -->
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f8;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#093756;border-radius:8px 8px 0 0;padding:32px 40px;text-align:center;">
+              <h1 style="margin:0;color:#f6b619;font-size:24px;font-weight:800;letter-spacing:1px;">PRINT<span style="color:#ffffff;">DUKA</span></h1>
+              <p style="margin:8px 0 0;color:#a8c4d8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Vendor Management System</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="background-color:#ffffff;padding:40px;">
+
+              <p style="margin:0 0 24px;color:#333333;font-size:15px;line-height:1.6;">
+                A vendor has uploaded a proof that requires your review and approval before production can proceed.
+              </p>
+
+              <!-- Details Table -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:32px;">
+                <tr>
+                  <td colspan="2" style="background-color:#093756;padding:12px 16px;">
+                    <span style="color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Proof Details</span>
+                  </td>
+                </tr>
+                <tr style="background-color:#f8fafc;">
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">PO Number</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:700;border-bottom:1px solid #e8ecf0;">{po.po_number}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Vendor</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{vendor.name}</td>
+                </tr>
+                <tr style="background-color:#f8fafc;">
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Job</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{job.job_number} – {job.job_name}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Product</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{po.product_type}</td>
+                </tr>
+                <tr style="background-color:#f8fafc;">
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;{'' if proof.description else 'border-bottom:none;'}">Quantity</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;{'' if proof.description else 'border-bottom:none;'}">{po.quantity:,}</td>
+                </tr>
+                {description_row}
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Status Indicator -->
+          <tr>
+            <td style="background-color:#fff8e6;border-left:4px solid #f6b619;padding:16px 40px;">
+              <p style="margin:0;color:#7a5c00;font-size:13px;">
+                <strong>Action Required:</strong> Please approve or reject this proof so the vendor can proceed. Delays may impact the delivery timeline.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#093756;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;">
+              <p style="margin:0 0 4px;color:#a8c4d8;font-size:12px;">This is an automated notification from PrintDuka.</p>
+              <p style="margin:0;color:#6b8fa8;font-size:11px;">© 2026 PrintDuka. All rights reserved.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>"""
+
+    plain_body = (
+        f"New proof submitted for review.\n\n"
+        f"PO Number: {po.po_number}\n"
+        f"Vendor:    {vendor.name}\n"
+        f"Job:       {job.job_number} – {job.job_name}\n"
+        f"Product:   {po.product_type}\n"
+        f"Quantity:  {po.quantity}\n"
+    )
+    if proof.description:
+        plain_body += f"Notes:     {proof.description}\n"
+
+    try:
+        from django.core.mail import EmailMultiAlternatives
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=plain_body,
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            to=recipients,
+        )
+        msg.attach_alternative(html_body, "text/html")
+        msg.send(fail_silently=True)
+    except Exception:
+        pass
+
+
+def _notify_invoice_submitted(invoice, vendor):
+    po = invoice.purchase_order
+    job = invoice.job
+
+    recipients = []
+
+    production_manager = getattr(job, 'person_in_charge', None)
+    if production_manager and production_manager.email:
+        recipients.append(production_manager.email)
+
+    account_manager = getattr(getattr(job, 'client', None), 'account_manager', None)
+    if account_manager and account_manager.email and account_manager.email not in recipients:
+        recipients.append(account_manager.email)
+
+    if not recipients:
+        return
+
+    subject = f"[PrintDuka] Invoice Submitted – {invoice.invoice_number} ({vendor.name})"
+
+    formatted_total = f"KES {float(invoice.total_amount):,.2f}"
+    formatted_subtotal = f"KES {float(invoice.subtotal):,.2f}"
+    formatted_tax = f"KES {float(invoice.tax_amount):,.2f}"
+
+    line_items_rows = ""
+    for item in (invoice.line_items or []):
+        line_items_rows += f"""
+        <tr>
+          <td style="padding:8px 16px;color:#333333;font-size:13px;border-bottom:1px solid #e8ecf0;">{item.get('description', '')}</td>
+          <td style="padding:8px 16px;color:#333333;font-size:13px;border-bottom:1px solid #e8ecf0;text-align:center;">{item.get('quantity', 0)}</td>
+          <td style="padding:8px 16px;color:#333333;font-size:13px;border-bottom:1px solid #e8ecf0;text-align:right;">KES {float(item.get('unit_price', 0)):,.2f}</td>
+          <td style="padding:8px 16px;color:#093756;font-size:13px;font-weight:600;border-bottom:1px solid #e8ecf0;text-align:right;">KES {float(item.get('amount', 0)):,.2f}</td>
+        </tr>"""
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invoice Submitted</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f4f8;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f8;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#093756;border-radius:8px 8px 0 0;padding:32px 40px;text-align:center;">
+              <h1 style="margin:0;color:#f6b619;font-size:24px;font-weight:800;letter-spacing:1px;">PRINT<span style="color:#ffffff;">DUKA</span></h1>
+              <p style="margin:8px 0 0;color:#a8c4d8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Vendor Management System</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="background-color:#ffffff;padding:40px;">
+
+              <p style="margin:0 0 24px;color:#333333;font-size:15px;line-height:1.6;">
+                A vendor has submitted an invoice for approval.
+              </p>
+
+              <!-- Invoice Details -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:28px;">
+                <tr>
+                  <td colspan="2" style="background-color:#093756;padding:12px 16px;">
+                    <span style="color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Invoice Details</span>
+                  </td>
+                </tr>
+                <tr style="background-color:#f8fafc;">
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Invoice Number</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:700;border-bottom:1px solid #e8ecf0;">{invoice.invoice_number}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Vendor</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{vendor.name}</td>
+                </tr>
+                <tr style="background-color:#f8fafc;">
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">PO Number</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{po.po_number}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Job</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{job.job_number} – {job.job_name}</td>
+                </tr>
+                <tr style="background-color:#f8fafc;">
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Invoice Date</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{invoice.invoice_date}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;">Due Date</td>
+                  <td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;">{invoice.due_date}</td>
+                </tr>
+              </table>
+
+              <!-- Line Items -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:28px;">
+                <tr>
+                  <td colspan="4" style="background-color:#093756;padding:12px 16px;">
+                    <span style="color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Line Items</span>
+                  </td>
+                </tr>
+                <tr style="background-color:#f8fafc;">
+                  <td style="padding:8px 16px;color:#777777;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e8ecf0;">Description</td>
+                  <td style="padding:8px 16px;color:#777777;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e8ecf0;text-align:center;">Qty</td>
+                  <td style="padding:8px 16px;color:#777777;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e8ecf0;text-align:right;">Rate</td>
+                  <td style="padding:8px 16px;color:#777777;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e8ecf0;text-align:right;">Amount</td>
+                </tr>
+                {line_items_rows}
+                <tr style="background-color:#f8fafc;">
+                  <td colspan="3" style="padding:8px 16px;color:#555555;font-size:13px;text-align:right;border-bottom:1px solid #e8ecf0;">Subtotal</td>
+                  <td style="padding:8px 16px;color:#093756;font-size:13px;font-weight:600;border-bottom:1px solid #e8ecf0;text-align:right;">{formatted_subtotal}</td>
+                </tr>
+                <tr>
+                  <td colspan="3" style="padding:8px 16px;color:#555555;font-size:13px;text-align:right;border-bottom:1px solid #e8ecf0;">Tax ({invoice.tax_rate}%)</td>
+                  <td style="padding:8px 16px;color:#093756;font-size:13px;font-weight:600;border-bottom:1px solid #e8ecf0;text-align:right;">{formatted_tax}</td>
+                </tr>
+                <tr style="background-color:#eaf1f8;">
+                  <td colspan="3" style="padding:12px 16px;color:#093756;font-size:15px;font-weight:700;text-align:right;">Total Amount</td>
+                  <td style="padding:12px 16px;color:#093756;font-size:15px;font-weight:800;text-align:right;">{formatted_total}</td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Action Required Strip -->
+          <tr>
+            <td style="background-color:#fff8e6;border-left:4px solid #f6b619;padding:16px 40px;">
+              <p style="margin:0;color:#7a5c00;font-size:13px;">
+                <strong>Action Required:</strong> Please review and approve or reject this invoice in the admin portal.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#093756;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;">
+              <p style="margin:0 0 4px;color:#a8c4d8;font-size:12px;">This is an automated notification from PrintDuka.</p>
+              <p style="margin:0;color:#6b8fa8;font-size:11px;">© 2026 PrintDuka. All rights reserved.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>"""
+
+    plain_body = (
+        f"Invoice submitted for approval.\n\n"
+        f"Invoice Number: {invoice.invoice_number}\n"
+        f"Vendor:         {vendor.name}\n"
+        f"PO Number:      {po.po_number}\n"
+        f"Job:            {job.job_number} – {job.job_name}\n"
+        f"Due Date:       {invoice.due_date}\n"
+        f"Total Amount:   {formatted_total}\n"
+    )
+
+    try:
+        from django.core.mail import EmailMultiAlternatives
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=plain_body,
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            to=recipients,
+        )
+        msg.attach_alternative(html_body, "text/html")
+        msg.send(fail_silently=True)
+    except Exception:
+        pass
 
 
 class PurchaseOrderProofViewSet(viewsets.ModelViewSet):
@@ -431,7 +778,9 @@ class PurchaseOrderProofViewSet(viewsets.ModelViewSet):
             description=description,
             status='pending'
         )
-        
+
+        _notify_proof_uploaded(proof, vendor)
+
         serializer = self.get_serializer(proof)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     

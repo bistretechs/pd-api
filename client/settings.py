@@ -289,15 +289,15 @@ else:
         'http://127.0.0.1:3000',
     ]
     
-# Email settings - Using Mailgun SMTP (Render-compatible, free tier)
-# Render-friendly alternative to SendGrid
+# Email settings - Zoho SMTP
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.mailgun.org'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = config('MAILGUN_SMTP_LOGIN', default='')  # From Mailgun (format: postmaster@your-domain.mailgun.org)
-EMAIL_HOST_PASSWORD = config('MAILGUN_SMTP_PASSWORD', default='')  # From Mailgun
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='PrintDuka <noreply@printduka.com>')
+EMAIL_HOST = 'smtppro.zoho.com'
+EMAIL_PORT = 465
+EMAIL_USE_SSL = True
+EMAIL_USE_TLS = False
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='dev@printduka.co.ke')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='PrintDuka <dev@printduka.co.ke>')
 
 # Mailgun API Configuration (Optional - for advanced tracking features)
 # Use this if you want to use Mailgun API instead of SMTP
