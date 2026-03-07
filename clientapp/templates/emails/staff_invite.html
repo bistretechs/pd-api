@@ -99,49 +99,25 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎉 Welcome to {{ company_name }} Staff Portal</h1>
+            <h1>Staff Invitation</h1>
         </div>
 
         <div class="content">
             <p>Hi {{ first_name }},</p>
 
-            <p><span class="highlight">{{ admin_name }}</span> has invited you to join the {{ company_name }} team as a
-                staff member.</p>
-
-            <p>You've been granted access to our staff portal where you can manage operations, collaborate with the
-                team, and help deliver exceptional printing services to our clients.</p>
+            <p>{{ admin_name }} has invited you to join the {{ company_name }} staff portal.</p>
 
             <div class="info-box">
-                <strong>Assigned Groups:</strong> {{ group_names }}
+                <strong>Assigned Role:</strong> {{ group_names }}
             </div>
 
-            <div class="divider"></div>
-
-            <h3 style="color: #093756;">Get Started in 2 Simple Steps:</h3>
-            <ol>
-                <li>Click the activation button below</li>
-                <li>Set your password and verify your account</li>
-            </ol>
+            <p>Click the button below to activate your account and set your password:</p>
 
             <div style="text-align: center; margin: 30px 0;">
-                <a href="{{ activation_link }}" class="btn">Activate My Account</a>
+                <a href="{{ activation_link }}" class="btn">Activate Account</a>
             </div>
 
-            <p class="warning">⏰ This invitation link will expire in 48 hours for security reasons.</p>
-
-            <div class="divider"></div>
-
-            <p>Once activated, you'll have access to:</p>
-            <ul>
-                <li>Dashboard and analytics</li>
-                <li>Client and lead management</li>
-                <li>Job tracking and production workflow</li>
-                <li>Team collaboration tools</li>
-            </ul>
-
-            <p>If you have any questions or didn't request this invitation, please contact your administrator.</p>
-
-            <p>Welcome aboard! 🚀</p>
+            <p class="warning">This link expires in 48 hours.</p>
 
             <p style="margin-top: 30px;">
                 Best regards,<br>
@@ -151,9 +127,8 @@
 
         <div class="footer">
             <p>&copy; {{ company_name }}. All rights reserved.</p>
-            <p style="color: #999; margin-top: 10px;">
-                If the button doesn't work, copy and paste this link into your browser:<br>
-                <span style="font-size: 11px; word-break: break-all;">{{ activation_link }}</span>
+            <p style="color: #999; margin-top: 10px; font-size: 11px;">
+                If the button doesn't work, use this link: {{ activation_link }}
             </p>
         </div>
     </div>

@@ -4291,7 +4291,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 admin_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
                 group_names = ", ".join([g.name for g in user.groups.all()]) if user.groups.exists() else "None"
                 
-                activation_link = f"{settings.STAFF_PORTAL_URL}/activate?token={invite_token}"
+                activation_link = f"{settings.FRONTEND_URL}/activate?token={invite_token}"
                 
                 context = {
                     'first_name': user.first_name,

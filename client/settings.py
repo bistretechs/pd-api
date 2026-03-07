@@ -293,10 +293,10 @@ else:
         'http://127.0.0.1:3001',
     ]
     
-# Email settings - Zoho SMTP
+# Email settings - Zoho SMTP (Change to ZeptoMail after getting correct credentials)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtppro.zoho.com'
-EMAIL_PORT = 465
+EMAIL_HOST = config('EMAIL_HOST', default='smtppro.zoho.com')
+EMAIL_PORT = config('EMAIL_PORT', default=465, cast=int)
 EMAIL_USE_SSL = True
 EMAIL_USE_TLS = False
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='dev@printduka.co.ke')
