@@ -184,6 +184,9 @@ router.register("v1/storefront-messages", storefront_views.StorefrontMessageView
 
 
 urlpatterns = router.urls + [
+    # Production Users Endpoint (for Account Manager job assignment)
+    path('production-users/', api_views.UserViewSet.as_view({'get': 'production_team'}), name='production-users'),
+    
     # Canonical Pricing Engine
     path('pricing/calculate/', api_views.PricingEngineView.as_view(), name='pricing-calculate'),
     # Product Configuration Rules Engine

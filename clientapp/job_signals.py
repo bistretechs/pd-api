@@ -51,7 +51,7 @@ def notify_pt_on_job_assignment(sender, instance, created, update_fields, **kwar
             'user_first_name': pt_user.first_name or 'Team Member',
             'job_number': instance.job_number or 'New Job',
             'job_name': instance.job_name,
-            'client_name': instance.client.company_name if instance.client else 'Unknown Client',
+            'client_name': (instance.client.company or instance.client.name) if instance.client else 'Unknown Client',
             'due_date': instance.expected_completion.strftime('%B %d, %Y') if instance.expected_completion else 'TBD',
             'priority': instance.get_priority_display().upper(),
             'job_url': f"{settings.SITE_URL}/job/{instance.id}/" if hasattr(settings, 'SITE_URL') else f"http://localhost:8000/job/{instance.id}/",

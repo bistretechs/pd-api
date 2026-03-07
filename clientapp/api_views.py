@@ -1945,6 +1945,62 @@ class JobViewSet(viewsets.ModelViewSet):
             link=f"/job/{job.pk}/",
         )
         
+        # Send Email Reminder
+        if job.person_in_charge.email:
+            try:
+                from django.core.mail import send_mail
+                from django.template.loader import render_to_string
+                
+                context = {
+                    'user_first_name': job.person_in_charge.first_name or 'Team Member',
+                    'job_number': job.job_number or job.pk,
+                    'job_name': job.job_name,
+                    'client_name': (job.client.company or job.client.name) if job.client else 'Unknown Client',
+                    'due_date': job.expected_completion.strftime('%B %d, %Y') if job.expected_completion else 'TBD',
+                    'priority': job.get_priority_display().upper() if hasattr(job, 'get_priority_display') else 'NORMAL',
+                    'job_url': f"{settings.SITE_URL}/job/{job.id}/" if hasattr(settings, 'SITE_URL') else f"http://localhost:8000/job/{job.id}/",
+                    'product_summary': job.product or 'Production Required',
+                    'reminder_by': request.user.get_full_name() or request.user.username,
+                }
+                
+                subject = f"⏰ Reminder: Job {job.job_number} - {job.job_name}"
+                
+                try:
+                    html_message = render_to_string('emails/job_reminder_notification.html', context)
+                except Exception:
+                    html_message = f"""
+                    <html>
+                        <body>
+                            <h2>Job Reminder</h2>
+                            <p>Hi {context['user_first_name']},</p>
+                            <p>This is a reminder about your assigned job:</p>
+                            <ul>
+                                <li><strong>Job Number:</strong> {context['job_number']}</li>
+                                <li><strong>Job Name:</strong> {context['job_name']}</li>
+                                <li><strong>Client:</strong> {context['client_name']}</li>
+                                <li><strong>Due Date:</strong> {context['due_date']}</li>
+                                <li><strong>Priority:</strong> {context['priority']}</li>
+                            </ul>
+                            <p>Please update the job status or contact the account manager if you need assistance.</p>
+                            <p><a href="{context['job_url']}">View Job Details</a></p>
+                            <p><small>Reminder sent by: {context['reminder_by']}</small></p>
+                        </body>
+                    </html>
+                    """
+                
+                send_mail(
+                    subject,
+                    f"Reminder: Job {job.job_number} needs your attention. Due: {context['due_date']}. View details: {context['job_url']}",
+                    settings.DEFAULT_FROM_EMAIL,
+                    [job.person_in_charge.email],
+                    html_message=html_message,
+                    fail_silently=True,
+                )
+                
+                logger.info(f"Job reminder email sent to {job.person_in_charge.email} for job {job.job_number}")
+            except Exception as e:
+                logger.error(f"Error sending job reminder email: {str(e)}")
+        
         # Log activity with timestamp for cooldown tracking
         ActivityLog.objects.create(
             client=job.client,
@@ -1955,7 +2011,7 @@ class JobViewSet(viewsets.ModelViewSet):
         )
         
         return Response({
-            "detail": "Reminder sent successfully",
+            "detail": "Reminder sent successfully (notification + email)",
             "recipient": job.person_in_charge.get_full_name() or job.person_in_charge.username,
             "next_reminder_allowed": (timezone.now() + timedelta(hours=4)).isoformat()
         })
@@ -4096,7 +4152,10 @@ class UserViewSet(viewsets.ModelViewSet):
         
         users = production_group.user_set.filter(is_active=True).order_by("first_name", "last_name", "username")
         serializer = self.get_serializer(users, many=True)
-        return Response(serializer.data)
+        return Response({
+            "results": serializer.data,
+            "count": users.count()
+        })
 
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
