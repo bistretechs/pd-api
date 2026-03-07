@@ -1386,6 +1386,7 @@ class QuoteViewSet(viewsets.ModelViewSet):
         """
         Send quote to Production Team for costing review.
         Quote status: Draft → Sent to PT
+        Optional: assigned_to (user_id) to assign to specific PT member
         """
         quote = self.get_object()
         
@@ -1399,25 +1400,60 @@ class QuoteViewSet(viewsets.ModelViewSet):
         quote.production_status = "pending"
         quote.save()
         
-        # Notify PT team
-        pt_group = Group.objects.filter(name="Production Team").first()
-        if pt_group:
-            for user in pt_group.user_set.all():
-                Notification.objects.create(
-                    recipient=user,
-                    notification_type='quote_sent_to_pt',
-                    title=f'Quote {quote.quote_id} Requires Costing',
-                    message=f'Quote {quote.quote_id} for {quote.client.name or "Lead"} is ready for costing review',
-                    link=f'/quotes/{quote.id}/',
+        # Handle assignment to specific PT member
+        assigned_user = None
+        assigned_to_id = request.data.get('assigned_to')
+        
+        if assigned_to_id:
+            try:
+                assigned_user = User.objects.get(pk=assigned_to_id)
+                # Verify user is in Production Team
+                if not assigned_user.groups.filter(name="Production Team").exists():
+                    return Response(
+                        {"detail": "Assigned user must be in Production Team group"}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                # Store assignment (if there's an assigned_to field on quote)
+                if hasattr(quote, 'assigned_to'):
+                    quote.assigned_to = assigned_user
+                    quote.save()
+            except User.DoesNotExist:
+                return Response(
+                    {"detail": "Assigned user not found"}, 
+                    status=status.HTTP_404_NOT_FOUND
                 )
+        
+        # Notify PT team (or just the assigned user)
+        if assigned_user:
+            # Notify only the assigned user
+            Notification.objects.create(
+                recipient=assigned_user,
+                notification_type='quote_sent_to_pt',
+                title=f'Quote {quote.quote_id} Assigned to You',
+                message=f'Quote {quote.quote_id} for {quote.client.name or "Lead"} has been assigned to you for costing review',
+                link=f'/quotes/{quote.id}/',
+            )
+        else:
+            # Notify all PT team members
+            pt_group = Group.objects.filter(name="Production Team").first()
+            if pt_group:
+                for user in pt_group.user_set.all():
+                    Notification.objects.create(
+                        recipient=user,
+                        notification_type='quote_sent_to_pt',
+                        title=f'Quote {quote.quote_id} Requires Costing',
+                        message=f'Quote {quote.quote_id} for {quote.client.name or "Lead"} is ready for costing review',
+                        link=f'/quotes/{quote.id}/',
+                    )
         
         # Log activity
         if quote.client:
+            assigned_text = f" (assigned to {assigned_user.get_full_name() or assigned_user.username})" if assigned_user else ""
             ActivityLog.objects.create(
                 client=quote.client,
                 activity_type='Quote',
-                title=f'Quote {quote.quote_id} Sent to PT',
-                description='Quote sent to Production Team for costing review',
+                title=f'Quote {quote.quote_id} Sent to PT{assigned_text}',
+                description=f'Quote sent to Production Team for costing review{assigned_text}',
                 related_quote=quote,
                 created_by=request.user,
             )
@@ -1736,6 +1772,69 @@ class QuoteViewSet(viewsets.ModelViewSet):
         
         serializer = JobSerializer(job)
         return Response({"detail": "Job created", "job": serializer.data})
+
+    @decorators.action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsAccountManager | IsAdmin], url_path="mark-lost")
+    def mark_lost(self, request, pk=None):
+        """
+        Mark a quote as lost with reason.
+        """
+        quote = self.get_object()
+        
+        if quote.status == "Approved":
+            return Response(
+                {"detail": "Cannot mark approved quotes as lost"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        reason = request.data.get("reason", "")
+        if not reason:
+            return Response(
+                {"detail": "Loss reason is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        quote.status = "Lost"
+        quote.loss_reason = reason
+        quote.production_status = "cancelled"
+        quote.save()
+        
+        # Log activity
+        if quote.client:
+            ActivityLog.objects.create(
+                client=quote.client,
+                activity_type='Quote',
+                title=f'Quote {quote.quote_id} Marked as Lost',
+                description=f'Reason: {reason}',
+                related_quote=quote,
+                created_by=request.user,
+            )
+        
+        serializer = self.get_serializer(quote)
+        return Response({
+            'detail': 'Quote marked as lost',
+            'quote': serializer.data
+        })
+
+    @decorators.action(detail=True, methods=["get"], url_path="download-pdf")
+    def download_pdf(self, request, pk=None):
+        """
+        Generate and download quote as PDF.
+        """
+        from django.http import HttpResponse
+        from .pdf_utils import generate_quote_pdf
+        
+        quote = self.get_object()
+        
+        try:
+            pdf_buffer = generate_quote_pdf(quote)
+            response = HttpResponse(pdf_buffer, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="quote_{quote.quote_id}.pdf"'
+            return response
+        except Exception as e:
+            return Response(
+                {"detail": f"Failed to generate PDF: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def perform_update(self, serializer):
         """
@@ -8056,4 +8155,72 @@ class DocumentShareViewSet(viewsets.ModelViewSet):
         shares = DocumentShare.objects.filter(shared_by=request.user)
         serializer = self.get_serializer(shares, many=True)
         return Response(serializer.data)
+
+
+class ContactFormView(APIView):
+    """Public API endpoint for website contact form submissions"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """Handle contact form submission and send email notification"""
+        try:
+            first_name = request.data.get('first_name', '').strip()
+            last_name = request.data.get('last_name', '').strip()
+            email = request.data.get('email', '').strip()
+            message = request.data.get('message', '').strip()
+            inquiry_type = request.data.get('inquiry_type', 'General inquiry')
+            
+            if not all([first_name, last_name, email, message]):
+                return Response(
+                    {'error': 'All fields are required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                return Response(
+                    {'error': 'Invalid email address'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            context = {
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+                'message': message,
+                'inquiry_type': inquiry_type,
+            }
+            
+            html_message = render_to_string(
+                'emails/contact_inquiry_notification.html',
+                context
+            )
+            
+            email_message = EmailMultiAlternatives(
+                subject=f'New Contact Inquiry from {first_name} {last_name}',
+                body=f'New {inquiry_type} from {first_name} {last_name} ({email})\n\nMessage:\n{message}',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=['query@printduka.co.ke'],
+                reply_to=[email],
+            )
+            email_message.attach_alternative(html_message, "text/html")
+            email_message.send()
+            
+            logger.info(f'Contact form submission from {email} sent successfully')
+            
+            return Response(
+                {'message': 'Thank you for contacting us. We will get back to you shortly.'},
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f'Error processing contact form: {str(e)}')
+            return Response(
+                {'error': 'Unable to process your request. Please try again later.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 

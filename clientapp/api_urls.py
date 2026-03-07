@@ -220,4 +220,7 @@ urlpatterns = router.urls + [
 
     # Client Portal - Profile
     path('portal/me/', api_views.ClientPortalMeView.as_view(), name='portal-me'),
+    
+    # Public Contact Form
+    path('contact/', api_views.ContactFormView.as_view(), name='contact-form'),
 ]
