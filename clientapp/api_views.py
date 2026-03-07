@@ -1426,23 +1426,25 @@ class QuoteViewSet(viewsets.ModelViewSet):
         # Notify PT team (or just the assigned user)
         if assigned_user:
             # Notify only the assigned user
+            client_name = quote.client.name if quote.client else (quote.lead.name if quote.lead else "Unknown")
             Notification.objects.create(
                 recipient=assigned_user,
                 notification_type='quote_sent_to_pt',
                 title=f'Quote {quote.quote_id} Assigned to You',
-                message=f'Quote {quote.quote_id} for {quote.client.name or "Lead"} has been assigned to you for costing review',
+                message=f'Quote {quote.quote_id} for {client_name} has been assigned to you for costing review',
                 link=f'/quotes/{quote.id}/',
             )
         else:
             # Notify all PT team members
             pt_group = Group.objects.filter(name="Production Team").first()
             if pt_group:
+                client_name = quote.client.name if quote.client else (quote.lead.name if quote.lead else "Unknown")
                 for user in pt_group.user_set.all():
                     Notification.objects.create(
                         recipient=user,
                         notification_type='quote_sent_to_pt',
                         title=f'Quote {quote.quote_id} Requires Costing',
-                        message=f'Quote {quote.quote_id} for {quote.client.name or "Lead"} is ready for costing review',
+                        message=f'Quote {quote.quote_id} for {client_name} is ready for costing review',
                         link=f'/quotes/{quote.id}/',
                     )
         
