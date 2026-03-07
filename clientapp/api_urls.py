@@ -221,6 +221,9 @@ urlpatterns = router.urls + [
     # Client Portal - Profile
     path('portal/me/', api_views.ClientPortalMeView.as_view(), name='portal-me'),
     
-    # Public Contact Form
+    path('quotes/public/<str:token>/', api_views.PublicQuoteDetailView.as_view(), name='public-quote-detail'),
+    path('quotes/public/<str:token>/accept/', api_views.PublicQuoteAcceptView.as_view(), name='public-quote-accept'),
+    path('quotes/public/<str:token>/reject/', api_views.PublicQuoteRejectView.as_view(), name='public-quote-reject'),
+    
     path('contact/', api_views.ContactFormView.as_view(), name='contact-form'),
 ]

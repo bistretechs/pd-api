@@ -175,14 +175,7 @@ class QuoteApprovalService:
             # Generate approval token
             token = QuoteApprovalService.generate_approval_token(quote)
             
-            # Build approval URL
-            if request:
-                approval_url = request.build_absolute_uri(
-                    reverse('quote_approval', kwargs={'token': token})
-                )
-            else:
-                # Fallback if no request
-                approval_url = f"{settings.SITE_URL}/quotes/approve/{token}/"
+            approval_url = f"{settings.FRONTEND_URL}/quotes/accept/{token}"
             
             # Get recipient
             recipient_email = quote.client.email if quote.client else quote.lead.email

@@ -1848,6 +1848,155 @@ class QuoteViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
+from rest_framework.views import APIView
+
+class PublicQuoteDetailView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request, token):
+        from .models import QuoteApprovalToken
+        
+        try:
+            approval_token = QuoteApprovalToken.objects.select_related('quote').get(
+                token=token,
+                expires_at__gt=timezone.now()
+            )
+            quote = approval_token.quote
+            
+            serializer = QuoteSerializer(quote)
+            return Response(serializer.data)
+            
+        except QuoteApprovalToken.DoesNotExist:
+            return Response(
+                {"detail": "Invalid or expired token"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class PublicQuoteAcceptView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request, token):
+        from .models import QuoteApprovalToken, Notification, ActivityLog
+        from django.contrib.auth.models import Group
+        
+        try:
+            approval_token = QuoteApprovalToken.objects.select_related('quote').get(
+                token=token,
+                expires_at__gt=timezone.now(),
+                used=False
+            )
+            quote = approval_token.quote
+            
+            if quote.status == "Approved":
+                return Response(
+                    {"detail": "Quote has already been accepted"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            quote.status = "Approved"
+            quote.save()
+            
+            approval_token.used = True
+            approval_token.used_at = timezone.now()
+            approval_token.save()
+            
+            am_group = Group.objects.filter(name="Account Manager").first()
+            if am_group and quote.created_by:
+                Notification.objects.create(
+                    recipient=quote.created_by,
+                    notification_type='quote_approved',
+                    title=f'Quote {quote.quote_id} Accepted',
+                    message=f'Customer has accepted quote {quote.quote_id}',
+                    link=f'/quotes/{quote.id}/',
+                )
+            
+            if quote.client:
+                ActivityLog.objects.create(
+                    client=quote.client,
+                    activity_type='Quote',
+                    title=f'Quote {quote.quote_id} Approved by Customer',
+                    description='Customer accepted the quote via email link',
+                    related_quote=quote,
+                )
+            
+            return Response({
+                "detail": "Quote accepted successfully",
+                "quote_id": quote.quote_id,
+                "status": quote.status
+            })
+            
+        except QuoteApprovalToken.DoesNotExist:
+            return Response(
+                {"detail": "Invalid or expired token"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class PublicQuoteRejectView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request, token):
+        from .models import QuoteApprovalToken, Notification, ActivityLog
+        
+        try:
+            approval_token = QuoteApprovalToken.objects.select_related('quote').get(
+                token=token,
+                expires_at__gt=timezone.now(),
+                used=False
+            )
+            quote = approval_token.quote
+            
+            if quote.status == "Lost":
+                return Response(
+                    {"detail": "Quote has already been rejected"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            reason = request.data.get('reason', 'Customer declined')
+            
+            quote.status = "Lost"
+            quote.lost_reason = reason
+            quote.save()
+            
+            approval_token.used = True
+            approval_token.used_at = timezone.now()
+            approval_token.save()
+            
+            if quote.created_by:
+                Notification.objects.create(
+                    recipient=quote.created_by,
+                    notification_type='quote_rejected',
+                    title=f'Quote {quote.quote_id} Declined',
+                    message=f'Customer declined quote {quote.quote_id}. Reason: {reason}',
+                    link=f'/quotes/{quote.id}/',
+                )
+            
+            if quote.client:
+                ActivityLog.objects.create(
+                    client=quote.client,
+                    activity_type='Quote',
+                    title=f'Quote {quote.quote_id} Rejected by Customer',
+                    description=f'Customer declined the quote via email link. Reason: {reason}',
+                    related_quote=quote,
+                )
+            
+            return Response({
+                "detail": "Quote rejected successfully",
+                "quote_id": quote.quote_id,
+                "status": quote.status
+            })
+            
+        except QuoteApprovalToken.DoesNotExist:
+            return Response(
+                {"detail": "Invalid or expired token"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['Account Manager']))
 @method_decorator(name='create', decorator=swagger_auto_schema(tags=['Account Manager']))
 @method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Account Manager']))
