@@ -538,6 +538,85 @@ class QuoteSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class MultiProductQuoteListSerializer(serializers.ModelSerializer):
+    """Serializer for quote list view with computed fields for frontend table display"""
+    line_items = QuoteLineItemSerializer(many=True, read_only=True)
+    client_name = serializers.SerializerMethodField()
+    client_id = serializers.IntegerField(source='client.id', read_only=True, allow_null=True)
+    lead_id = serializers.IntegerField(source='lead.id', read_only=True, allow_null=True)
+    account_manager = serializers.SerializerMethodField()
+    account_manager_id = serializers.IntegerField(source='created_by.id', read_only=True, allow_null=True)
+    item_count = serializers.SerializerMethodField()
+    approved_items = serializers.SerializerMethodField()
+    total_value = serializers.DecimalField(source='total_amount', max_digits=10, decimal_places=2, read_only=True)
+    total_cost = serializers.SerializerMethodField()
+    margin = serializers.SerializerMethodField()
+    created_date = serializers.SerializerMethodField()
+    days_remaining = serializers.SerializerMethodField()
+    
+    def get_client_name(self, obj):
+        if obj.client:
+            return obj.client.name
+        elif obj.lead:
+            return obj.lead.name
+        return None
+    
+    def get_account_manager(self, obj):
+        if obj.created_by:
+            return f"{obj.created_by.first_name} {obj.created_by.last_name}".strip() or obj.created_by.username
+        return None
+    
+    def get_item_count(self, obj):
+        return obj.line_items.count() if hasattr(obj, 'line_items') else 0
+    
+    def get_approved_items(self, obj):
+        # For now, return 0. Can be enhanced if you track approval per line item
+        return 0
+    
+    def get_total_cost(self, obj):
+        if obj.production_cost:
+            return obj.production_cost
+        return 0
+    
+    def get_margin(self, obj):
+        if obj.total_amount and obj.production_cost and obj.production_cost > 0:
+            margin = ((obj.total_amount - obj.production_cost) / obj.total_amount) * 100
+            return round(margin, 2)
+        return 0
+    
+    def get_created_date(self, obj):
+        if obj.created_at:
+            return obj.created_at.date().isoformat()
+        return None
+    
+    def get_days_remaining(self, obj):
+        if obj.valid_until:
+            from django.utils import timezone
+            from datetime import datetime
+            if isinstance(obj.valid_until, str):
+                valid_until = datetime.strptime(obj.valid_until, '%Y-%m-%d').date()
+            else:
+                valid_until = obj.valid_until
+            today = timezone.now().date()
+            delta = (valid_until - today).days
+            return delta
+        return 0
+
+    class Meta:
+        model = Quote
+        fields = [
+            'id', 'quote_id', 'line_items', 'client_name', 'client_id', 'lead_id',
+            'account_manager', 'account_manager_id', 'item_count', 'approved_items',
+            'total_value', 'total_cost', 'margin', 'status', 'created_date', 
+            'valid_until', 'days_remaining', 'subtotal', 'discount_total', 
+            'tax_total', 'tax_rate', 'shipping_charges', 'adjustment_amount',
+            'adjustment_reason', 'payment_terms', 'reference_number', 'notes',
+            'terms', 'custom_terms', 'loss_reason', 'include_vat',
+            'production_status', 'production_cost', 'production_notes',
+            'created_at', 'updated_at'
+        ]
+
+
 class JobSerializer(serializers.ModelSerializer):
     person_in_charge_name = serializers.CharField(source='person_in_charge.get_full_name', read_only=True)
     person_in_charge_email = serializers.EmailField(source='person_in_charge.email', read_only=True)

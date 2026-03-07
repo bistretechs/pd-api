@@ -1242,6 +1242,13 @@ class QuoteViewSet(viewsets.ModelViewSet):
     search_fields = ["quote_id", "product_name", "reference_number"]
     ordering_fields = ["created_at", "quote_date", "valid_until"]
 
+    def get_serializer_class(self):
+        """Use MultiProductQuoteListSerializer for list view, QuoteSerializer for detail/create/update"""
+        if self.action == 'list':
+            from clientapp.api_serializers import MultiProductQuoteListSerializer
+            return MultiProductQuoteListSerializer
+        return QuoteSerializer
+
     def create(self, request, *args, **kwargs):
         """
         Override create to support nested line_items for bulk quote creation.
