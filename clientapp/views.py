@@ -8,6 +8,8 @@ from decimal import Decimal
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Avg, Count, Q, Sum
 from django.urls import reverse
@@ -17,6 +19,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from functools import wraps
+from django.contrib.auth import login
 from django.contrib.auth.models import User, Group
 from .models import BrandAsset
 
@@ -12083,8 +12086,8 @@ def vendor_invite_accept(request, token):
                 user.save()
                 cache.delete(f'vendor_invite_{token}')
                 login(request, user)
-                messages.success(request, 'Your account is active. Welcome to the vendor portal.')
-                return redirect('vendor_portal')
+                from django.conf import settings as django_settings
+                return redirect(f'{django_settings.FRONTEND_URL}/vendors')
 
     return render(request, 'vendor/vendor_invite_accept.html', {
         'company_name': company_name,

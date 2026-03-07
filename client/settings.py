@@ -298,6 +298,8 @@ EMAIL_USE_TLS = False
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='dev@printduka.co.ke')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='PrintDuka <dev@printduka.co.ke>')
+SITE_URL = config('SITE_URL', default='http://localhost:8000')
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
 
 # Mailgun API Configuration (Optional - for advanced tracking features)
 # Use this if you want to use Mailgun API instead of SMTP

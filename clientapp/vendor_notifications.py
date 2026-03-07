@@ -34,6 +34,7 @@ class VendorNotificationService:
         
         try:
             job = job_vendor_stage.job
+            frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000').rstrip('/')
             context = {
                 'vendor_name': vendor.name,
                 'job_number': job.job_number,
@@ -44,6 +45,7 @@ class VendorNotificationService:
                 'expected_completion': job_vendor_stage.expected_completion,
                 'priority': job.priority.upper(),
                 'notes': job.notes,
+                'portal_url': f'{frontend_url}/vendors/purchase-orders',
             }
             
             # Send email
@@ -67,9 +69,9 @@ class VendorNotificationService:
                 user=vendor.user,
                 notification_type='job_assigned',
                 title=f"New Job: {job.job_number}",
-                message=f"{job.job_name} assigned to you",
-                related_object_id=job.id,
-                related_object_type='Job'
+                message=f"{job.job_name} — due {job_vendor_stage.expected_completion.strftime('%d %b %Y')}",
+                related_job=job,
+                action_url='/vendors/purchase-orders',
             )
             
             logger.info(f"Notified vendor {vendor.name} about job {job.job_number}")
@@ -343,31 +345,20 @@ class VendorNotificationService:
             logger.error(f"Failed to send SMS to {phone}: {str(e)}")
     
     @staticmethod
-    def _create_notification(user, notification_type, title, message, related_object_id=None, related_object_type=None):
-        """
-        Create in-app notification
-        
-        Args:
-            user: User to notify
-            notification_type: Type of notification
-            title: Notification title
-            message: Notification message
-            related_object_id: ID of related object (Job, Invoice, etc)
-            related_object_type: Type of related object
-        """
+    def _create_notification(user, notification_type, title, message, related_job=None, action_url=None):
         try:
             from .models import Notification
-            
+
             Notification.objects.create(
-                user=user,
+                recipient=user,
                 notification_type=notification_type,
                 title=title,
                 message=message,
-                related_object_id=related_object_id,
-                related_object_type=related_object_type,
-                is_read=False
+                related_job=related_job,
+                action_url=action_url,
+                is_read=False,
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to create notification for {user.username}: {str(e)}")
 
@@ -424,11 +415,10 @@ class PTNotificationService:
                 # Create in-app notification
                 VendorNotificationService._create_notification(
                     user=pt_user,
-                    notification_type='invoice_pending_approval',
+                    notification_type='vendor_invoice_submitted',
                     title=f"Invoice Pending: {vendor_invoice.invoice_number}",
                     message=f"{vendor.name} submitted invoice for KES {vendor_invoice.total_amount}",
-                    related_object_id=vendor_invoice.id,
-                    related_object_type='VendorInvoice'
+                    action_url='/production-team/my-jobs',
                 )
             
             logger.info(f"PT notification sent for invoice {vendor_invoice.invoice_number}")

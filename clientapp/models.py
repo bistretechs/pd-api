@@ -2981,7 +2981,7 @@ class Vendor(models.Model):
     def get_current_workload(self):
         """Get count of active jobs for vendor"""
         active_statuses = ['sent_to_vendor', 'in_production']
-        return self.job_vendor_stages.filter(
+        return self.job_stages.filter(
             status__in=active_statuses
         ).count()
     
@@ -3300,6 +3300,8 @@ class Notification(models.Model):
         ('vendor_invoice_submitted', 'Vendor Invoice Submitted'),
         ('vendor_issue_raised', 'Vendor Issue Raised'),
         ('vendor_substitution_requested', 'Vendor Substitution Requested'),
+        ('vendor_portal_invite_sent', 'Vendor Portal Invite Sent'),
+        ('job_assigned', 'Job Assigned to Vendor'),
         ('general', 'General Notification'),
     ]
     

@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, F
 from django.core.cache import cache
 from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
@@ -2319,21 +2320,87 @@ class VendorViewSet(viewsets.ModelViewSet):
 
         if send_invite:
             try:
-                send_mail(
-                    subject="Vendor Portal Invitation",
-                    message=(
-                        f"Hello {vendor.contact_person or vendor.name},\n\n"
-                        f"You have been invited to access the vendor portal.\n"
-                        f"Set your password and activate your account here:\n{invite_url}\n\n"
-                        "This link expires in 48 hours."
-                    ),
-                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@printduka.com"),
-                    recipient_list=[vendor.email],
-                    fail_silently=False,
+                contact = vendor.contact_person or vendor.name
+                from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "PrintDuka <dev@printduka.co.ke>")
+                plain_body = (
+                    f"Hello {contact},\n\n"
+                    f"You have been invited to the PrintDuka Vendor Portal.\n\n"
+                    f"Set your password and activate your account here:\n{invite_url}\n\n"
+                    "This link expires in 48 hours.\n\n"
+                    "PrintDuka Team"
                 )
+                html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Vendor Portal Invitation</title></head>
+<body style="margin:0;padding:0;background-color:#f0f4f8;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+        <tr><td style="background-color:#093756;border-radius:8px 8px 0 0;padding:32px 40px;text-align:center;">
+          <h1 style="margin:0;color:#f6b619;font-size:24px;font-weight:800;letter-spacing:1px;">PRINT<span style="color:#ffffff;">DUKA</span></h1>
+          <p style="margin:8px 0 0;color:#a8c4d8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Vendor Portal</p>
+        </td></tr>
+        <tr><td style="background-color:#ffffff;padding:40px;">
+          <h2 style="margin:0 0 16px;color:#093756;font-size:20px;font-weight:700;">You&rsquo;re invited, {contact}</h2>
+          <p style="margin:0 0 24px;color:#444444;font-size:15px;line-height:1.6;">
+            You have been registered as a supplier on the <strong>PrintDuka Vendor Portal</strong>.
+            Click the button below to set your password and activate your account.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:28px;">
+            <tr><td colspan="2" style="background-color:#093756;padding:12px 16px;"><span style="color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Your Account Details</span></td></tr>
+            <tr style="background-color:#f8fafc;"><td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Company</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:700;border-bottom:1px solid #e8ecf0;">{vendor.name}</td></tr>
+            <tr><td style="padding:10px 16px;color:#555555;font-size:14px;border-bottom:1px solid #e8ecf0;">Login Email</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{vendor.email}</td></tr>
+            <tr style="background-color:#f8fafc;"><td style="padding:10px 16px;color:#555555;font-size:14px;">Link Expires</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;">48 hours</td></tr>
+          </table>
+          <div style="text-align:center;margin-bottom:28px;">
+            <a href="{invite_url}" style="display:inline-block;background-color:#f6b619;color:#093756;font-size:15px;font-weight:800;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Activate My Account &rarr;</a>
+          </div>
+          <p style="margin:0;color:#888888;font-size:12px;line-height:1.6;">
+            If the button doesn&rsquo;t work, copy and paste this link into your browser:<br>
+            <a href="{invite_url}" style="color:#093756;word-break:break-all;">{invite_url}</a>
+          </p>
+        </td></tr>
+        <tr><td style="background-color:#093756;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;">
+          <p style="margin:0 0 4px;color:#a8c4d8;font-size:12px;">This is an automated notification from PrintDuka.</p>
+          <p style="margin:0;color:#6b8fa8;font-size:11px;">&copy; 2026 PrintDuka. All rights reserved.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+                msg = EmailMultiAlternatives(
+                    subject=f"[PrintDuka] Vendor Portal Invitation — {vendor.name}",
+                    body=plain_body,
+                    from_email=from_email,
+                    to=[vendor.email],
+                )
+                msg.attach_alternative(html_body, "text/html")
+                msg.send(fail_silently=False)
                 email_sent = True
             except Exception as exc:
                 logger.warning("Vendor invite email failed for vendor %s: %s", vendor.id, exc)
+
+        # Log notification for all Admin + Production Team staff so they can track invites
+        staff_users = User.objects.filter(
+            is_active=True,
+            groups__name__in=["Admin", "Production Team"],
+        ).distinct()
+        for staff_user in staff_users:
+            try:
+                Notification.objects.create(
+                    recipient=staff_user,
+                    notification_type="vendor_portal_invite_sent",
+                    title=f"Vendor Invite {'Sent' if email_sent else 'Prepared'} — {vendor.name}",
+                    message=(
+                        f"Portal invite {'sent to' if email_sent else 'prepared for'} "
+                        f"{vendor.name} ({vendor.email}). "
+                        f"{'Link delivered by email.' if email_sent else 'Email delivery failed — share the link manually.'}"
+                    ),
+                    action_url="/production-team/vendors",
+                )
+            except Exception as notif_exc:
+                logger.warning("Could not create invite Notification for staff %s: %s", staff_user.pk, notif_exc)
 
         return Response(
             {
@@ -5684,7 +5751,7 @@ class PurchaseOrderProofViewSet(viewsets.ModelViewSet):
             client=po.job.client,
             activity_type='Proof Review',
             title=f'Proof Approved for PO {po.po_number}',
-            description=f'Proof type: {proof.proof_type}. Status: Approved',
+            description=f'Proof #{proof.id} for PO {po.po_number}. Status: Approved',
             created_by=request.user,
         )
         

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Activate your account · PrintDuka</title>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #fff;
+            color: #111;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .topbar {
+            border-bottom: 1px solid #e5e5e5;
+            padding: 0 40px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+        }
+
+        .topbar .wordmark {
+            font-size: 15px;
+            font-weight: 700;
+            color: #111;
+            letter-spacing: -0.2px;
+        }
+
+        .page {
+            flex: 1;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 64px 24px 80px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .heading {
+            margin-bottom: 32px;
+        }
+
+        .heading h1 {
+            font-size: 22px;
+            font-weight: 600;
+            color: #111;
+            letter-spacing: -0.3px;
+            margin-bottom: 6px;
+        }
+
+        .heading p {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .alert {
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            border: 1px solid transparent;
+        }
+
+        .alert-error {
+            background: #fff5f5;
+            border-color: #fed7d7;
+            color: #c53030;
+        }
+
+        .alert-success {
+            background: #f0fff4;
+            border-color: #c6f6d5;
+            color: #276749;
+        }
+
+        .field {
+            margin-bottom: 20px;
+        }
+
+        .field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+
+        .field input {
+            width: 100%;
+            height: 36px;
+            padding: 0 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #111;
+            background: #fff;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .field input:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        .field-hint {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            height: 36px;
+            background: #111;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 500;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s;
+            margin-top: 8px;
+        }
+
+        .btn:hover {
+            background: #333;
+        }
+
+        .invalid-state h1 {
+            font-size: 22px;
+            font-weight: 600;
+            color: #111;
+            letter-spacing: -0.3px;
+            margin-bottom: 8px;
+        }
+
+        .invalid-state p {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        footer {
+            border-top: 1px solid #e5e5e5;
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        footer span,
+        footer a {
+            font-size: 12px;
+            color: #9ca3af;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            color: #111;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header class="topbar">
+        <span class="wordmark">PrintDuka</span>
+    </header>
+
+    <main class="page">
+        <div class="container">
+
+            {% if not valid %}
+
+            <div class="invalid-state">
+                <h1>This link has expired</h1>
+                <p>The invitation link is invalid or has already been used. Contact PrintDuka to receive a new one.</p>
+            </div>
+
+            {% else %}
+
+            <div class="heading">
+                <h1>Activate your account</h1>
+                <p>Welcome, {{ contact_person }}. Set a password to access the {{ vendor_name }} vendor account.</p>
+            </div>
+
+            {% if messages %}
+            {% for message in messages %}
+            <div class="alert {% if message.tags == 'error' %}alert-error{% else %}alert-success{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            <form method="post" novalidate>
+                {% csrf_token %}
+
+                <div class="field">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" autocomplete="new-password" required
+                        autofocus />
+                    <p class="field-hint">At least 8 characters.</p>
+                </div>
+
+                <div class="field">
+                    <label for="password_confirm">Confirm password</label>
+                    <input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password"
+                        required />
+                </div>
+
+                <button type="submit" class="btn">Activate account</button>
+            </form>
+
+            {% endif %}
+
+        </div>
+    </main>
+
+    <footer>
+        <span>&copy; 2026 PrintDuka</span>
+        <a href="mailto:support@printduka.co.ke">Support</a>
+    </footer>
+
+</body>
+
+</html>

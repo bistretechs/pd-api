@@ -8,7 +8,11 @@ from django.dispatch import receiver
 from django.apps import AppConfig
 from clientapp.models import Product, ProductChangeHistory, ProductPricing, ProductSEO
 import json
+import logging
+import secrets
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 # Track previous values before save
 _product_previous_values = {}
@@ -30,6 +34,181 @@ def recalculate_vps_on_qc_inspection_save(sender, instance, **kwargs):
     vendor = getattr(instance, 'vendor', None)
     if vendor is not None:
         vendor.update_performance_score()
+
+
+# ──────────────────────────────────────────────
+# Vendor auto-invite on creation
+# ──────────────────────────────────────────────
+
+@receiver(post_save, sender='clientapp.Vendor')
+def auto_invite_vendor_on_create(sender, instance, created, **kwargs):
+    if not created:
+        return
+    if not instance.email:
+        logger.warning("Vendor %s (%s) created without email — skipping auto-invite.", instance.pk, instance.name)
+        return
+    vendor_pk = instance.pk
+    from django.db import transaction
+    transaction.on_commit(lambda: _provision_vendor_invite(vendor_pk))
+
+
+def _provision_vendor_invite(vendor_pk: int) -> None:
+    from django.contrib.auth.models import User
+    from django.core.cache import cache
+    from django.core.mail import EmailMultiAlternatives
+    from django.conf import settings
+    from clientapp.models import Vendor, Notification
+
+    try:
+        vendor = Vendor.objects.get(pk=vendor_pk)
+    except Vendor.DoesNotExist:
+        logger.error("Vendor %s not found when trying to send auto-invite.", vendor_pk)
+        return
+
+    email = vendor.email.strip().lower()
+
+    # ── Resolve or create the linked User ──────────────────────────────
+    existing_user = User.objects.filter(email__iexact=email).first()
+    user_created = False
+
+    if existing_user is not None:
+        if hasattr(existing_user, 'vendor_profile') and existing_user.vendor_profile.pk != vendor.pk:
+            # Email already belongs to a different vendor — do not overwrite
+            logger.warning(
+                "Vendor %s email '%s' is already linked to vendor %s — skipping user creation.",
+                vendor.pk, email, existing_user.vendor_profile.pk,
+            )
+            return
+        # Safe to link (user exists but has no vendor_profile, or this is the same vendor)
+        vendor.user = existing_user
+        existing_user.is_active = False
+        existing_user.save(update_fields=["is_active"])
+        vendor.save(update_fields=["user", "updated_at"])
+    else:
+        username_base = email.split("@")[0]
+        username = username_base
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{username_base}{counter}"
+            counter += 1
+
+        first_name = (
+            (vendor.contact_person or "").strip().split(" ")[0]
+            if vendor.contact_person
+            else vendor.name[:50]
+        )
+        existing_user = User.objects.create(
+            username=username,
+            email=email,
+            first_name=first_name,
+            is_active=False,
+            is_staff=False,
+        )
+        vendor.user = existing_user
+        vendor.save(update_fields=["user", "updated_at"])
+        user_created = True
+
+    # ── Generate invite token ───────────────────────────────────────────
+    invite_token = secrets.token_urlsafe(32)
+    cache.set(f"vendor_invite_{invite_token}", existing_user.id, 172800)  # 48 h
+
+    site_url = getattr(settings, "SITE_URL", "http://localhost:8000").rstrip("/")
+    invite_url = f"{site_url}/vendor/invite/{invite_token}/"
+
+    contact = vendor.contact_person or vendor.name
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "PrintDuka <dev@printduka.co.ke>")
+
+    # ── Send invite email to vendor ─────────────────────────────────────
+    plain_body = (
+        f"Hello {contact},\n\n"
+        f"You have been invited to the PrintDuka Vendor Portal.\n\n"
+        f"Set your password and activate your account here:\n{invite_url}\n\n"
+        "This link expires in 48 hours.\n\n"
+        "PrintDuka Team"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Vendor Portal Invitation</title></head>
+<body style="margin:0;padding:0;background-color:#f0f4f8;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+        <tr><td style="background-color:#093756;border-radius:8px 8px 0 0;padding:32px 40px;text-align:center;">
+          <h1 style="margin:0;color:#f6b619;font-size:24px;font-weight:800;letter-spacing:1px;">PRINT<span style="color:#ffffff;">DUKA</span></h1>
+          <p style="margin:8px 0 0;color:#a8c4d8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Vendor Portal</p>
+        </td></tr>
+        <tr><td style="background-color:#ffffff;padding:40px;">
+          <h2 style="margin:0 0 16px;color:#093756;font-size:20px;font-weight:700;">You&rsquo;re invited, {contact}</h2>
+          <p style="margin:0 0 24px;color:#444444;font-size:15px;line-height:1.6;">
+            You have been registered as a supplier on the <strong>PrintDuka Vendor Portal</strong>.
+            Click the button below to set your password and activate your account.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:28px;">
+            <tr><td colspan="2" style="background-color:#093756;padding:12px 16px;"><span style="color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Your Account Details</span></td></tr>
+            <tr style="background-color:#f8fafc;"><td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Company</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:700;border-bottom:1px solid #e8ecf0;">{vendor.name}</td></tr>
+            <tr><td style="padding:10px 16px;color:#555555;font-size:14px;border-bottom:1px solid #e8ecf0;">Login Email</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{email}</td></tr>
+            <tr style="background-color:#f8fafc;"><td style="padding:10px 16px;color:#555555;font-size:14px;">Link Expires</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;">48 hours</td></tr>
+          </table>
+          <div style="text-align:center;margin-bottom:28px;">
+            <a href="{invite_url}" style="display:inline-block;background-color:#f6b619;color:#093756;font-size:15px;font-weight:800;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Activate My Account &rarr;</a>
+          </div>
+          <p style="margin:0;color:#888888;font-size:12px;line-height:1.6;">
+            If the button doesn&rsquo;t work, copy and paste this link into your browser:<br>
+            <a href="{invite_url}" style="color:#093756;word-break:break-all;">{invite_url}</a>
+          </p>
+        </td></tr>
+        <tr><td style="background-color:#093756;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;">
+          <p style="margin:0 0 4px;color:#a8c4d8;font-size:12px;">This is an automated notification from PrintDuka.</p>
+          <p style="margin:0;color:#6b8fa8;font-size:11px;">&copy; 2026 PrintDuka. All rights reserved.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    try:
+        msg = EmailMultiAlternatives(
+            subject=f"[PrintDuka] Vendor Portal Invitation — {vendor.name}",
+            body=plain_body,
+            from_email=from_email,
+            to=[email],
+        )
+        msg.attach_alternative(html_body, "text/html")
+        msg.send(fail_silently=False)
+        logger.info("Vendor invite email sent to %s (vendor %s).", email, vendor.pk)
+    except Exception as exc:
+        logger.error("Failed to send vendor invite email to %s: %s", email, exc)
+
+    # ── Notify internal staff (Admin + Production Team) ─────────────────
+    _notify_staff_vendor_created(vendor, invite_url)
+
+
+def _notify_staff_vendor_created(vendor, invite_url: str) -> None:
+    from django.contrib.auth.models import User
+    from clientapp.models import Notification
+
+    staff_users = User.objects.filter(
+        is_active=True,
+        groups__name__in=["Admin", "Production Team"],
+    ).distinct()
+
+    for staff_user in staff_users:
+        try:
+            Notification.objects.create(
+                recipient=staff_user,
+                notification_type="vendor_portal_invite_sent",
+                title=f"Vendor Invited — {vendor.name}",
+                message=(
+                    f"{vendor.name} ({vendor.email}) has been registered as a vendor. "
+                    f"A portal invite has been sent automatically."
+                ),
+                action_url=f"/production-team/vendors",
+            )
+        except Exception as exc:
+            logger.warning("Could not create Notification for staff user %s: %s", staff_user.pk, exc)
+
 
 @receiver(pre_save, sender=Product)
 def track_product_changes_pre_save(sender, instance, **kwargs):

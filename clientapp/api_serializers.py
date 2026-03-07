@@ -1138,8 +1138,8 @@ class PurchaseOrderProofSerializer(serializers.ModelSerializer):
         model = PurchaseOrderProof
         fields = [
             'id', 'purchase_order', 'po_number', 'proof_image',
-            'submitted_at', 'status', 'reviewed_by',
-            'reviewed_by_name', 'reviewed_at'
+            'description', 'submitted_at', 'status', 'reviewed_by',
+            'reviewed_by_name', 'reviewed_at', 'rejection_reason'
         ]
         read_only_fields = ['submitted_at']
         ref_name = 'PurchaseOrderProofAPI'
