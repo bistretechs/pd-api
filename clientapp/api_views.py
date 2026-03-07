@@ -4462,7 +4462,6 @@ class DashboardViewSet(viewsets.ViewSet):
         # KPIs
         my_revenue_this_month = Quote.objects.filter(
             created_by=user,
-            status='Approved',
             created_at__gte=this_month_start
         ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
         
@@ -4471,23 +4470,18 @@ class DashboardViewSet(viewsets.ViewSet):
             created_at__gte=this_month_start
         ).values('quote_id').distinct().count()
         
-        my_quotes_approved_this_month = Quote.objects.filter(
-            created_by=user,
-            status='Approved',
-            created_at__gte=this_month_start
-        ).values('quote_id').distinct().count()
-        
-        my_win_rate = (my_quotes_approved_this_month / my_quotes_this_month * 100) if my_quotes_this_month > 0 else 0
-        
         active_jobs_count = Job.objects.filter(
-            client__account_manager=user,
+            created_by=user,
             status__in=['pending', 'in_progress']
         ).count()
         
-        new_clients_this_month = Client.objects.filter(
-            account_manager=user,
+        client_ids_from_quotes = Quote.objects.filter(
+            created_by=user,
+            client__isnull=False,
             created_at__gte=this_month_start
-        ).count()
+        ).values_list('client_id', flat=True).distinct()
+        
+        new_clients_this_month = len(set(client_ids_from_quotes))
         
         # Lead Funnel
         lead_funnel = {
@@ -4495,14 +4489,6 @@ class DashboardViewSet(viewsets.ViewSet):
             "contacted": Lead.objects.filter(created_by=user, status="Contacted").count(),
             "qualified": Lead.objects.filter(created_by=user, status="Qualified").count(),
             "converted": Lead.objects.filter(created_by=user, status="Converted").count(),
-        }
-        
-        # Quote Status Distribution
-        quote_status = {
-            "draft": Quote.objects.filter(created_by=user, status="Draft").values('quote_id').distinct().count(),
-            "quoted": Quote.objects.filter(created_by=user, status__in=["Quoted", "Sent to Customer"]).values('quote_id').distinct().count(),
-            "approved": Quote.objects.filter(created_by=user, status="Approved").values('quote_id').distinct().count(),
-            "lost": Quote.objects.filter(created_by=user, status="Lost").values('quote_id').distinct().count(),
         }
         
         # Revenue Trend (last 6 months)
@@ -4513,7 +4499,6 @@ class DashboardViewSet(viewsets.ViewSet):
             
             revenue = Quote.objects.filter(
                 created_by=user,
-                status='Approved',
                 created_at__gte=month_start,
                 created_at__lte=month_end
             ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
@@ -4529,18 +4514,23 @@ class DashboardViewSet(viewsets.ViewSet):
             month_start = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
             month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
             
-            b2b_count = Client.objects.filter(
-                account_manager=user,
-                client_type='B2B',
+            client_ids_in_month = Quote.objects.filter(
+                created_by=user,
+                client__isnull=False,
                 created_at__gte=month_start,
                 created_at__lte=month_end
+            ).values_list('client_id', flat=True).distinct()
+            
+            client_ids_set = set(client_ids_in_month)
+            
+            b2b_count = Client.objects.filter(
+                id__in=client_ids_set,
+                client_type='B2B'
             ).count()
             
             b2c_count = Client.objects.filter(
-                account_manager=user,
-                client_type='B2C',
-                created_at__gte=month_start,
-                created_at__lte=month_end
+                id__in=client_ids_set,
+                client_type='B2C'
             ).count()
             
             client_growth.append({
@@ -4549,30 +4539,12 @@ class DashboardViewSet(viewsets.ViewSet):
                 "b2c": b2c_count
             })
         
-        # Top Products by Revenue
-        top_products_data = Quote.objects.filter(
-            created_by=user,
-            status='Approved'
-        ).values('product_name').annotate(
-            revenue=Sum('total_amount'),
-            count=Count('id')
-        ).order_by('-revenue')[:5]
-        
-        top_products = [
-            {
-                "name": item['product_name'],
-                "revenue": float(item['revenue']),
-                "count": item['count']
-            }
-            for item in top_products_data
-        ]
-        
         # Jobs Status Distribution
         jobs_status = {
-            "pending": Job.objects.filter(client__account_manager=user, status="pending").count(),
-            "in_progress": Job.objects.filter(client__account_manager=user, status="in_progress").count(),
-            "on_hold": Job.objects.filter(client__account_manager=user, status="on_hold").count(),
-            "completed": Job.objects.filter(client__account_manager=user, status="completed").count(),
+            "pending": Job.objects.filter(created_by=user, status="pending").count(),
+            "in_progress": Job.objects.filter(created_by=user, status="in_progress").count(),
+            "on_hold": Job.objects.filter(created_by=user, status="on_hold").count(),
+            "completed": Job.objects.filter(created_by=user, status="completed").count(),
         }
         
         # Recent Quotes
@@ -4617,15 +4589,13 @@ class DashboardViewSet(viewsets.ViewSet):
         data = {
             "kpis": {
                 "my_revenue_this_month": float(my_revenue_this_month),
-                "my_win_rate": round(my_win_rate, 1),
+                "my_quotes_this_month": my_quotes_this_month,
                 "active_jobs_count": active_jobs_count,
                 "new_clients_this_month": new_clients_this_month,
             },
             "lead_funnel": lead_funnel,
-            "quote_status": quote_status,
             "revenue_trend": revenue_trend,
             "client_growth": client_growth,
-            "top_products": top_products,
             "jobs_status": jobs_status,
             "recent_quotes": recent_quotes,
             "upcoming_actions": upcoming_actions,
