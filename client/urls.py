@@ -28,6 +28,10 @@ from clientapp.api_views import RegisterView, ChangePasswordView
 from clientapp.admin_login_bypass import AdminLoginBypassView
 from clientapp.direct_admin_login import direct_admin_login
 from clientapp import session_auth
+from django.http import JsonResponse
+
+def health_check(request):
+    return JsonResponse({"status": "ok"})
 from clientapp.storefront_views import (
     StorefrontHomeView,
     StorefrontProductsPageView,
@@ -50,6 +54,7 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    path('api/health/', health_check, name='health_check'),
     path('direct-login/', direct_admin_login, name='direct_login'),
     path('admin/', admin.site.urls),
     path('admin-bypass-login/', AdminLoginBypassView.as_view(), name='admin_bypass'),
