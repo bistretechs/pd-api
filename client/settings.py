@@ -34,7 +34,15 @@ SECRET_KEY = config('SECRET_KEY')
 # DEBUG = True
 # for development
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default=[], cast=Csv())
+_allowed_hosts_env = config('ALLOWED_HOSTS', default='', cast=Csv())
+ALLOWED_HOSTS = list(set(list(_allowed_hosts_env) + [
+    'localhost',
+    '127.0.0.1',
+    '.railway.app',
+    'printduka.co.ke',
+    'www.printduka.co.ke',
+    'api.printduka.co.ke',
+]))
 
 # Application definition
 
@@ -241,14 +249,18 @@ SIMPLE_JWT = {
 
 # CORS settings
 _cors_origins_env = config('CORS_ALLOWED_ORIGINS', default='')
-CORS_ALLOWED_ORIGINS = [
-    o.strip() for o in _cors_origins_env.split(',') if o.strip()
-] or [
+_cors_extra = [o.strip() for o in _cors_origins_env.split(',') if o.strip()]
+
+CORS_ALLOWED_ORIGINS = list(set([
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-]
+    # Production origins — always included
+    "https://printduka.co.ke",
+    "https://www.printduka.co.ke",
+    "https://print-duka-web-production.up.railway.app",
+] + _cors_extra))
 CORS_ALLOW_CREDENTIALS = True
 
 # Session cookie settings for cross-origin
@@ -279,8 +291,14 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
     
     # prevention of csrf errors
-    _csrf_env = config('CSRF_TRUSTED_ORIGINS', default='https://print-duka-api-production.up.railway.app')
-    CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(',') if o.strip()]
+    _csrf_env = config('CSRF_TRUSTED_ORIGINS', default='')
+    _csrf_extra = [o.strip() for o in _csrf_env.split(',') if o.strip()]
+    CSRF_TRUSTED_ORIGINS = list(set([
+        'https://printduka.co.ke',
+        'https://www.printduka.co.ke',
+        'https://print-duka-web-production.up.railway.app',
+        'https://print-duka-api-production.up.railway.app',
+    ] + _csrf_extra))
 else:
     # Development settings
     SECURE_HSTS_SECONDS = 0
