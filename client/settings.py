@@ -240,7 +240,10 @@ SIMPLE_JWT = {
 }
 
 # CORS settings
+_cors_origins_env = config('CORS_ALLOWED_ORIGINS', default='')
 CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in _cors_origins_env.split(',') if o.strip()
+] or [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
@@ -249,13 +252,13 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # Session cookie settings for cross-origin
-SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_DOMAIN = None  # Allow localhost
+SESSION_COOKIE_DOMAIN = None
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 days
 
-# CSRF cookie settings for cross-origin  
-CSRF_COOKIE_SAMESITE = 'Lax'
+# CSRF cookie settings for cross-origin
+CSRF_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
 CSRF_COOKIE_HTTPONLY = False  # JavaScript needs to read for fetch requests
 
 # File upload settings
@@ -276,7 +279,8 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
     
     # prevention of csrf errors
-    CSRF_TRUSTED_ORIGINS = ['https://client2-o4ay.onrender.com'] 
+    _csrf_env = config('CSRF_TRUSTED_ORIGINS', default='https://print-duka-api-production.up.railway.app')
+    CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(',') if o.strip()]
 else:
     # Development settings
     SECURE_HSTS_SECONDS = 0
@@ -293,7 +297,7 @@ else:
         'http://127.0.0.1:3001',
     ]
     
-# Email settings - Zoho SMTP (Change to ZeptoMail after getting correct credentials)
+# Email settings - Zoho SMTP 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = config('EMAIL_HOST', default='smtppro.zoho.com')
 EMAIL_PORT = config('EMAIL_PORT', default=465, cast=int)
