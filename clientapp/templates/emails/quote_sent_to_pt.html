@@ -36,7 +36,7 @@
         .value {
             font-size: 15px;
             color: #111111;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }
 
         .cta {
@@ -49,12 +49,6 @@
             font-size: 14px;
             font-weight: 600;
             margin: 8px 0 24px;
-        }
-
-        .note {
-            font-size: 13px;
-            color: #888888;
-            margin-top: 0;
         }
 
         .divider {
@@ -77,17 +71,25 @@
 
 <body>
     <div class="wrap">
-        <p>Hi {{ first_name }},</p>
+        <p>Hi {{ recipient_name }},</p>
 
-        <p>{{ admin_name }} has invited you to join the {{ company_name }} staff portal. Click the button below to
-            activate your account and set your password.</p>
+        <p>{{ sender_name }} has sent you a quote for costing review.</p>
 
-        <div class="label">Assigned role</div>
-        <div class="value">{{ group_names }}</div>
+        <div class="label">Quote ID</div>
+        <div class="value">{{ quote_id }}</div>
 
-        <a href="{{ activation_link }}" class="cta">Activate Account</a>
+        <div class="label">Client</div>
+        <div class="value">{{ client_name }}</div>
 
-        <p class="note">This link expires in 48 hours.</p>
+        <div class="label">Items</div>
+        <div class="value">{{ item_count }} line item{{ item_count|pluralize }}</div>
+
+        {% if notes %}
+        <div class="label">Notes</div>
+        <div class="value">{{ notes }}</div>
+        {% endif %}
+
+        <a href="{{ quote_link }}" class="cta">Review Quote</a>
 
         <hr class="divider">
 
@@ -95,7 +97,7 @@
 
         <p class="footer">
             If the button doesn't work, copy and paste this link into your browser:<br>
-            <a href="{{ activation_link }}">{{ activation_link }}</a>
+            <a href="{{ quote_link }}">{{ quote_link }}</a>
         </p>
     </div>
 </body>

@@ -348,15 +348,6 @@ class LeadViewSet(viewsets.ModelViewSet):
             link=f"/leads/{lead.pk}/",
         )
         
-        # Create activity log
-        ActivityLog.objects.create(
-            client=None,
-            activity_type='Note',
-            title=f"Lead {lead.lead_id} Qualified",
-            description=f"Lead moved to Qualified status by {request.user.username}.",
-            created_by=request.user,
-        )
-        
         serializer = self.get_serializer(lead)
         return Response({
             "detail": "Lead qualified successfully",
@@ -1423,10 +1414,46 @@ class QuoteViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
         
-        # Notify PT team (or just the assigned user)
+        client_name = quote.client.name if quote.client else (quote.lead.name if quote.lead else "Unknown")
+        sender_name = request.user.get_full_name() or request.user.username
+        item_count = quote.items.count() if hasattr(quote, 'items') else 0
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'https://printduka.co.ke')
+        quote_link = f"{frontend_url}/staff/quotes/{quote.id}"
+        company_name = getattr(settings, 'COMPANY_NAME', 'PrintDuka')
+
+        def _send_pt_email(recipient_user):
+            if not recipient_user.email:
+                return
+            try:
+                from django.template.loader import render_to_string
+                from django.utils.html import strip_tags
+                from django.core.mail import send_mail
+                context = {
+                    'recipient_name': recipient_user.first_name or recipient_user.username,
+                    'sender_name': sender_name,
+                    'quote_id': quote.quote_id,
+                    'client_name': client_name,
+                    'item_count': item_count,
+                    'notes': request.data.get('notes', ''),
+                    'quote_link': quote_link,
+                    'company_name': company_name,
+                }
+                html_message = render_to_string('emails/quote_sent_to_pt.html', context)
+                plain_message = strip_tags(html_message)
+                send_mail(
+                    subject=f"Quote {quote.quote_id} — Costing Review Required",
+                    message=plain_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[recipient_user.email],
+                    html_message=html_message,
+                    fail_silently=True,
+                )
+                logger.info(f"PT notification email sent to {recipient_user.email} for quote {quote.quote_id}")
+            except Exception as e:
+                logger.error(f"Failed to send PT notification email to {recipient_user.email}: {e}")
+
+        # Notify PT team (or just the assigned user) — in-app + email
         if assigned_user:
-            # Notify only the assigned user
-            client_name = quote.client.name if quote.client else (quote.lead.name if quote.lead else "Unknown")
             Notification.objects.create(
                 recipient=assigned_user,
                 notification_type='quote_sent_to_pt',
@@ -1434,11 +1461,10 @@ class QuoteViewSet(viewsets.ModelViewSet):
                 message=f'Quote {quote.quote_id} for {client_name} has been assigned to you for costing review',
                 link=f'/quotes/{quote.id}/',
             )
+            _send_pt_email(assigned_user)
         else:
-            # Notify all PT team members
             pt_group = Group.objects.filter(name="Production Team").first()
             if pt_group:
-                client_name = quote.client.name if quote.client else (quote.lead.name if quote.lead else "Unknown")
                 for user in pt_group.user_set.all():
                     Notification.objects.create(
                         recipient=user,
@@ -1447,7 +1473,8 @@ class QuoteViewSet(viewsets.ModelViewSet):
                         message=f'Quote {quote.quote_id} for {client_name} is ready for costing review',
                         link=f'/quotes/{quote.id}/',
                     )
-        
+                    _send_pt_email(user)
+
         # Log activity
         if quote.client:
             assigned_text = f" (assigned to {assigned_user.get_full_name() or assigned_user.username})" if assigned_user else ""
@@ -4185,7 +4212,7 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdmin]
     filterset_fields = ["is_active", "is_superuser"]
     search_fields = ["username", "email", "first_name", "last_name"]
-    http_method_names = ['get', 'post', 'patch', 'head', 'options']
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()

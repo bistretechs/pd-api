@@ -151,7 +151,9 @@ class QuoteApprovalService:
             dict: {'success': bool, 'message': str}
         """
         from clientapp.models import Quote
-        from clientapp.tasks import send_quote_email_via_mailgun_api
+        from django.core.mail import send_mail as django_send_mail
+        from django.template.loader import render_to_string
+        from django.utils.html import strip_tags
         
         # Ensure quote is saved
         if not quote.pk:
@@ -224,31 +226,34 @@ class QuoteApprovalService:
                 'total_amount': total_amount,
             }
             
-            # Send email via Mailgun API with tracking enabled
+            # Send email via Zoho SMTP
             try:
-                # Call the Mailgun API task function directly (synchronous execution)
-                result = send_quote_email_via_mailgun_api(
-                    quote_id=quote.pk,
-                    recipient_email=recipient_email,
+                html_message = render_to_string('emails/quote_email.html', context)
+                plain_message = strip_tags(html_message)
+                django_send_mail(
                     subject=f'Quote {quote.quote_id} - Awaiting Your Approval',
-                    context=context
+                    message=plain_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[recipient_email],
+                    html_message=html_message,
+                    fail_silently=False,
                 )
-                
+
                 # Update quote status to "Sent to Customer"
                 quote.status = 'Sent to Customer'
                 quote.production_status = 'sent_to_client'
                 quote.email_sent = True
                 quote.email_sent_at = timezone.now()
                 quote.save()
-                
-                logger.info(f"Quote {quote.quote_id} sent to {recipient_email} via Mailgun API")
-                
+
+                logger.info(f"Quote {quote.quote_id} sent to {recipient_email} via Zoho SMTP")
+
                 return {
                     'success': True,
                     'message': f'Quote sent to {recipient_email}'
                 }
             except Exception as e:
-                logger.error(f"Error sending quote email synchronously: {e}", exc_info=True)
+                logger.error(f"Error sending quote email: {e}", exc_info=True)
                 return {
                     'success': False,
                     'message': f'Error sending quote: {str(e)}'
