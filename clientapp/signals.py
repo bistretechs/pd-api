@@ -210,6 +210,174 @@ def _notify_staff_vendor_created(vendor, invite_url: str) -> None:
             logger.warning("Could not create Notification for staff user %s: %s", staff_user.pk, exc)
 
 
+# ──────────────────────────────────────────────
+# Client auto-invite on creation
+# ──────────────────────────────────────────────
+
+@receiver(post_save, sender='clientapp.Client')
+def auto_invite_client_on_create(sender, instance, created, **kwargs):
+    if not created:
+        return
+    if not instance.email:
+        logger.warning("Client %s (%s) created without email — skipping auto-invite.", instance.pk, instance.name)
+        return
+    client_pk = instance.pk
+    from django.db import transaction
+    transaction.on_commit(lambda: _provision_client_invite(client_pk))
+
+
+def _provision_client_invite(client_pk: int) -> None:
+    from django.contrib.auth.models import User
+    from django.core.cache import cache
+    from django.core.mail import EmailMultiAlternatives
+    from django.conf import settings
+    from clientapp.models import Client, ClientPortalUser, Notification
+
+    try:
+        client = Client.objects.get(pk=client_pk)
+    except Client.DoesNotExist:
+        logger.error("Client %s not found when trying to send auto-invite.", client_pk)
+        return
+
+    email = client.email.strip().lower()
+
+    existing_user = User.objects.filter(email__iexact=email).first()
+
+    if existing_user is not None:
+        if hasattr(existing_user, 'client_portal_user') and existing_user.client_portal_user.client_id != client.pk:
+            logger.warning(
+                "Client %s email '%s' is already linked to another portal user — skipping.",
+                client.pk, email,
+            )
+            return
+        portal_user, _ = ClientPortalUser.objects.get_or_create(
+            user=existing_user,
+            client=client,
+            defaults={'role': 'owner'},
+        )
+        existing_user.is_active = False
+        existing_user.save(update_fields=["is_active"])
+    else:
+        username_base = email.split("@")[0]
+        username = username_base
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{username_base}{counter}"
+            counter += 1
+
+        first_name = (client.name or "").strip().split(" ")[0][:50]
+        existing_user = User.objects.create(
+            username=username,
+            email=email,
+            first_name=first_name,
+            is_active=False,
+            is_staff=False,
+        )
+        ClientPortalUser.objects.create(
+            user=existing_user,
+            client=client,
+            role='owner',
+        )
+
+    invite_token = secrets.token_urlsafe(32)
+    cache.set(f"client_invite_{invite_token}", existing_user.id, 172800)  # 48 h
+
+    frontend_url = getattr(settings, "FRONTEND_URL", "https://printduka.co.ke").rstrip("/")
+    invite_url = f"{frontend_url}/activate?token={invite_token}"
+
+    contact = client.name
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "PrintDuka <dev@printduka.co.ke>")
+
+    plain_body = (
+        f"Hello {contact},\n\n"
+        f"You have been registered as a client on the PrintDuka Client Portal.\n\n"
+        f"Set your password and activate your account here:\n{invite_url}\n\n"
+        "This link expires in 48 hours.\n\n"
+        "PrintDuka Team"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Client Portal Invitation</title></head>
+<body style="margin:0;padding:0;background-color:#f0f4f8;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+        <tr><td style="background-color:#093756;border-radius:8px 8px 0 0;padding:32px 40px;text-align:center;">
+          <h1 style="margin:0;color:#f6b619;font-size:24px;font-weight:800;letter-spacing:1px;">PRINT<span style="color:#ffffff;">DUKA</span></h1>
+          <p style="margin:8px 0 0;color:#a8c4d8;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Client Portal</p>
+        </td></tr>
+        <tr><td style="background-color:#ffffff;padding:40px;">
+          <h2 style="margin:0 0 16px;color:#093756;font-size:20px;font-weight:700;">Welcome, {contact}</h2>
+          <p style="margin:0 0 24px;color:#444444;font-size:15px;line-height:1.6;">
+            You have been registered as a client on the <strong>PrintDuka Client Portal</strong>.
+            Click the button below to set your password and activate your account.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e8ecf0;border-radius:6px;overflow:hidden;margin-bottom:28px;">
+            <tr><td colspan="2" style="background-color:#093756;padding:12px 16px;"><span style="color:#f6b619;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Your Account Details</span></td></tr>
+            <tr style="background-color:#f8fafc;"><td style="padding:10px 16px;color:#555555;font-size:14px;width:40%;border-bottom:1px solid #e8ecf0;">Name</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:700;border-bottom:1px solid #e8ecf0;">{client.name}</td></tr>
+            <tr><td style="padding:10px 16px;color:#555555;font-size:14px;border-bottom:1px solid #e8ecf0;">Login Email</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;border-bottom:1px solid #e8ecf0;">{email}</td></tr>
+            <tr style="background-color:#f8fafc;"><td style="padding:10px 16px;color:#555555;font-size:14px;">Link Expires</td><td style="padding:10px 16px;color:#093756;font-size:14px;font-weight:600;">48 hours</td></tr>
+          </table>
+          <div style="text-align:center;margin-bottom:28px;">
+            <a href="{invite_url}" style="display:inline-block;background-color:#f6b619;color:#093756;font-size:15px;font-weight:800;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Activate My Account &rarr;</a>
+          </div>
+          <p style="margin:0;color:#888888;font-size:12px;line-height:1.6;">
+            If the button doesn&rsquo;t work, copy and paste this link into your browser:<br>
+            <a href="{invite_url}" style="color:#093756;word-break:break-all;">{invite_url}</a>
+          </p>
+        </td></tr>
+        <tr><td style="background-color:#093756;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;">
+          <p style="margin:0 0 4px;color:#a8c4d8;font-size:12px;">This is an automated notification from PrintDuka.</p>
+          <p style="margin:0;color:#6b8fa8;font-size:11px;">&copy; 2026 PrintDuka. All rights reserved.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    try:
+        msg = EmailMultiAlternatives(
+            subject=f"[PrintDuka] Client Portal Invitation — {client.name}",
+            body=plain_body,
+            from_email=from_email,
+            to=[email],
+        )
+        msg.attach_alternative(html_body, "text/html")
+        msg.send(fail_silently=False)
+        logger.info("Client invite email sent to %s (client %s).", email, client.pk)
+    except Exception as exc:
+        logger.error("Failed to send client invite email to %s: %s", email, exc)
+
+    _notify_staff_client_created(client)
+
+
+def _notify_staff_client_created(client) -> None:
+    from django.contrib.auth.models import User
+    from clientapp.models import Notification
+
+    staff_users = User.objects.filter(
+        is_active=True,
+        groups__name__in=["Admin", "Account Manager"],
+    ).distinct()
+
+    for staff_user in staff_users:
+        try:
+            Notification.objects.create(
+                recipient=staff_user,
+                notification_type="client_portal_invite_sent",
+                title=f"Client Invited — {client.name}",
+                message=(
+                    f"{client.name} ({client.email}) has been registered as a client. "
+                    f"A portal invite has been sent automatically."
+                ),
+                action_url=f"/account-manager/clients",
+            )
+        except Exception as exc:
+            logger.warning("Could not create Notification for staff user %s: %s", staff_user.pk, exc)
+
+
 @receiver(pre_save, sender=Product)
 def track_product_changes_pre_save(sender, instance, **kwargs):
     """

@@ -4365,7 +4365,11 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        user_id = cache.get(f'staff_invite_{token}') or cache.get(f'vendor_invite_{token}')
+        user_id = (
+            cache.get(f'staff_invite_{token}')
+            or cache.get(f'vendor_invite_{token}')
+            or cache.get(f'client_invite_{token}')
+        )
         
         if not user_id:
             return Response(
@@ -4389,7 +4393,12 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        cache_key = f'staff_invite_{token}' if cache.get(f'staff_invite_{token}') else f'vendor_invite_{token}'
+        if cache.get(f'staff_invite_{token}'):
+            cache_key = f'staff_invite_{token}'
+        elif cache.get(f'vendor_invite_{token}'):
+            cache_key = f'vendor_invite_{token}'
+        else:
+            cache_key = f'client_invite_{token}'
         user_id = cache.get(cache_key)
         
         if not user_id:
