@@ -112,8 +112,8 @@ def _provision_vendor_invite(vendor_pk: int) -> None:
     invite_token = secrets.token_urlsafe(32)
     cache.set(f"vendor_invite_{invite_token}", existing_user.id, 172800)  # 48 h
 
-    site_url = getattr(settings, "SITE_URL", "http://localhost:8000").rstrip("/")
-    invite_url = f"{site_url}/vendor/invite/{invite_token}/"
+    frontend_url = getattr(settings, "FRONTEND_URL", "https://printduka.co.ke").rstrip("/")
+    invite_url = f"{frontend_url}/activate?token={invite_token}"
 
     contact = vendor.contact_person or vendor.name
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "PrintDuka <dev@printduka.co.ke>")

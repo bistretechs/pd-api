@@ -2654,7 +2654,8 @@ class VendorViewSet(viewsets.ModelViewSet):
         invite_token = secrets.token_urlsafe(32)
         cache.set(f"vendor_invite_{invite_token}", user.id, 172800)
 
-        invite_url = request.build_absolute_uri(f"/vendor/invite/{invite_token}/")
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'https://printduka.co.ke')
+        invite_url = f"{frontend_url}/activate?token={invite_token}"
         send_invite = request.data.get("send_invite", True)
         email_sent = False
 
@@ -4364,7 +4365,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        user_id = cache.get(f'staff_invite_{token}')
+        user_id = cache.get(f'staff_invite_{token}') or cache.get(f'vendor_invite_{token}')
         
         if not user_id:
             return Response(
@@ -4388,7 +4389,8 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        user_id = cache.get(f'staff_invite_{token}')
+        cache_key = f'staff_invite_{token}' if cache.get(f'staff_invite_{token}') else f'vendor_invite_{token}'
+        user_id = cache.get(cache_key)
         
         if not user_id:
             return Response(
@@ -4409,7 +4411,7 @@ class UserViewSet(viewsets.ModelViewSet):
             user.is_active = True
             user.save()
             
-            cache.delete(f'staff_invite_{token}')
+            cache.delete(cache_key)
             
             logger.info(f"User {user.username} activated account via invite link")
             
