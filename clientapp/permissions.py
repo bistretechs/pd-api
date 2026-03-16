@@ -28,6 +28,17 @@ class IsProductionTeam(permissions.BasePermission):
         return _in_group(request.user, "Production Team")
 
 
+class IsCatalogEditor(permissions.BasePermission):
+    """Allow Admin, Account Manager, or Production Team members."""
+
+    def has_permission(self, request, view):
+        return (
+            _in_group(request.user, "Admin")
+            or _in_group(request.user, "Account Manager")
+            or _in_group(request.user, "Production Team")
+        )
+
+
 class IsOwnerOrAdmin(permissions.BasePermission):
     """
     Object-level permission: Admins/Superusers always allowed; otherwise user must own the object.

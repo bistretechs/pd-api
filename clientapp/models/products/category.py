@@ -3,6 +3,30 @@ from django.utils.text import slugify
 from django import forms
 
 
+def _unique_slug(model_class, base_slug: str, exclude_pk=None) -> str:
+    slug = base_slug
+    counter = 2
+    qs = model_class.objects.all()
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    while qs.filter(slug=slug).exists():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+    return slug
+
+
+def _unique_slug_scoped(model_class, category_id, base_slug: str, exclude_pk=None) -> str:
+    slug = base_slug
+    counter = 2
+    qs = model_class.objects.filter(category_id=category_id)
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    while qs.filter(slug=slug).exists():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+    return slug
+
+
 class ProductCategory(models.Model):
     name = models.CharField(max_length=100)
     slug = models.SlugField(unique=True)
@@ -15,6 +39,11 @@ class ProductCategory(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = _unique_slug(ProductCategory, slugify(self.name), self.pk)
+        super().save(*args, **kwargs)
 
 
 class ProductCategoryForm(forms.ModelForm):
@@ -43,6 +72,13 @@ class ProductSubCategory(models.Model):
     def __str__(self):
         return f'{self.category.name} - {self.name}'
 
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = _unique_slug_scoped(
+                ProductSubCategory, self.category_id, slugify(self.name), self.pk
+            )
+        super().save(*args, **kwargs)
+
 
 class ProductFamily(models.Model):
     name = models.CharField(max_length=100)
@@ -56,6 +92,11 @@ class ProductFamily(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = _unique_slug(ProductFamily, slugify(self.name), self.pk)
+        super().save(*args, **kwargs)
 
 
 class ProductTag(models.Model):
@@ -71,7 +112,7 @@ class ProductTag(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name)
+            self.slug = _unique_slug(ProductTag, slugify(self.name), self.pk)
         super().save(*args, **kwargs)
 
 
@@ -125,3 +166,8 @@ class PrintCategory(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = _unique_slug(PrintCategory, slugify(self.name), self.pk)
+        super().save(*args, **kwargs)

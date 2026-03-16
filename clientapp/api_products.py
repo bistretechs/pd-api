@@ -20,7 +20,7 @@ from .models import (
     SpecOptionRange,
     calculate_product_price,
 )
-from .permissions import IsAdmin, IsAccountManager, IsProductionTeam
+from .permissions import IsAdmin, IsAccountManager, IsProductionTeam, IsCatalogEditor
 
 logger = logging.getLogger(__name__)
 
@@ -415,7 +415,7 @@ class _CatalogWriteMixin:
     def get_permissions(self):
         if self.request.method in SAFE_METHODS:
             return [AllowAny()]
-        return [IsAuthenticated(), IsAdmin() | IsProductionTeam() | IsAccountManager()]
+        return [IsAuthenticated(), IsCatalogEditor()]
 
 
 class ProductTagViewSet(_CatalogWriteMixin, viewsets.ModelViewSet):
