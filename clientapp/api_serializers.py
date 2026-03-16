@@ -16,28 +16,12 @@ from .models import (
     Payment,
     Notification,
     ActivityLog,
-    PropertyType,
-    PropertyValue,
-    ProductProperty,
-    QuantityPricing,
-    TurnAroundTime,
     SystemSetting,
-    # Costing / process models
-    Process,
-    ProcessTier,
-    ProcessVariable,
-    ProductVariable,
-    ProductVariableOption,
-    ProcessVendor,
-    PricingTier,
-    VendorTierPricing,
-    ProcessVariableRange,
     # Product metadata
     ProductImage,
     ProductVideo,
     ProductDownloadableFile,
     ProductSEO,
-    ProductPricing,
     ProductReviewSettings,
     ProductFAQ,
     ProductShipping,
@@ -71,8 +55,6 @@ from .models import (
     ProductReview,
     ShippingMethod,
     PaymentTransaction,
-    #webhook and other models
-    ProductRule,
     TimelineEvent,
     DesignSession,
     DesignVersion,
@@ -234,18 +216,6 @@ class ComplianceDocumentSerializer(serializers.ModelSerializer):
 import json
 from django.utils import timezone
 
-class ProductPricingSerializer(serializers.ModelSerializer):
-    """Serializer for ProductPricing with nested write support"""
-    class Meta:
-        model = ProductPricing
-        fields = [
-            'id', 'pricing_model', 'base_cost', 'price_display', 'default_margin',
-            'minimum_margin', 'minimum_order_value', 'tier_process', 'formula_process',
-            'return_margin', 'production_method', 'rush_lead_time_value', 'rush_lead_time_unit'
-        ]
-        read_only_fields = ['id']
-
-
 class ProductImageSerializer(serializers.ModelSerializer):
     """Serializer for ProductImage"""
     class Meta:
@@ -346,7 +316,6 @@ class ProductApprovalRequestSerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     """Complete Product serializer with nested relationships"""
-    pricing = ProductPricingSerializer(read_only=True)
     seo = ProductSEOSerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
     videos = ProductVideoSerializer(many=True, read_only=True)
@@ -372,7 +341,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'country_of_origin', 'base_price', 'stock_status', 'stock_quantity',
             'track_inventory', 'allow_backorders', 'internal_notes', 'client_notes',
             'product_type',
-            'pricing', 'seo', 'images', 'videos',
+            'seo', 'images', 'videos',
             'can_be_published', 'has_pricing', 'image_count', 'primary_image_url',
             'completion_percentage', 'created_at', 'updated_at',
             'created_by', 'created_by_name', 'updated_by', 'updated_by_name'
@@ -490,38 +459,6 @@ class ProductSerializer(serializers.ModelSerializer):
         if obj.status == 'published': completed_fields += 1
         
         return int((completed_fields / total_fields) * 100)
-
-
-class PropertyTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PropertyType
-        fields = "__all__"
-
-
-class PropertyValueSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PropertyValue
-        fields = "__all__"
-
-
-class ProductPropertySerializer(serializers.ModelSerializer):
-    property_value = PropertyValueSerializer(read_only=True)
-
-    class Meta:
-        model = ProductProperty
-        fields = "__all__"
-
-
-class QuantityPricingSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = QuantityPricing
-        fields = "__all__"
-
-
-class TurnAroundTimeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TurnAroundTime
-        fields = "__all__"
 
 
 class QuoteLineItemSerializer(serializers.ModelSerializer):
@@ -692,64 +629,6 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 class SystemSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = SystemSetting
-        fields = "__all__"
-
-
-# ===== Costing / Process Serializers =====
-
-class ProcessSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Process
-        fields = "__all__"
-
-
-class ProcessTierSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProcessTier
-        fields = "__all__"
-
-
-class ProcessVariableSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProcessVariable
-        fields = "__all__"
-
-
-class ProductVariableOptionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProductVariableOption
-        fields = "__all__"
-
-
-class ProductVariableSerializer(serializers.ModelSerializer):
-    options = ProductVariableOptionSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = ProductVariable
-        fields = "__all__"
-
-
-class ProcessVendorSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProcessVendor
-        fields = "__all__"
-
-
-class PricingTierSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PricingTier
-        fields = "__all__"
-
-
-class VendorTierPricingSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = VendorTierPricing
-        fields = "__all__"
-
-
-class ProcessVariableRangeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProcessVariableRange
         fields = "__all__"
 
 
@@ -1090,11 +969,6 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at', 'initiated_at']
 
 
-
-class ProductRuleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProductRule
-        fields = "__all__"
 
 class TimelineEventSerializer(serializers.ModelSerializer):
     actor_name = serializers.CharField(source='actor.get_full_name', read_only=True)

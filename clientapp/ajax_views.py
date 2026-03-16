@@ -2,7 +2,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404
-from .models import Process, ProcessTier, ProcessVariable, ProcessVariableRange, ProductImage
+from .models import ProductImage
 import json
 from decimal import Decimal
 import decimal

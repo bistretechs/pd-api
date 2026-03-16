@@ -3,7 +3,7 @@ from django.forms import inlineformset_factory
 from django.core.exceptions import ValidationError
 from .models import (
     Lead, Client, Job, Product, Quote, ProductionUpdate,
-    ProductVariable, ProductVariableOption, ProductImage, ProductTag, Vendor, Process, LPO, Payment,
+    ProductImage, ProductTag, Vendor, LPO, Payment,
 )
 from django.contrib.auth.models import User
 from .models import (ProductCategory, SystemSetting)
@@ -285,24 +285,6 @@ class VendorForm(forms.ModelForm):
         }
 
 
-class ProcessForm(forms.ModelForm):
-    """Form for creating/editing processes"""
-    
-    class Meta:
-        model = Process
-        fields = ['process_name', 'description', 'category', 'standard_lead_time', 
-                  'pricing_type', 'unit_of_measure', 'status']
-        widgets = {
-            'process_name': forms.TextInput(attrs={'class': 'form-input w-full', 'placeholder': 'Process name'}),
-            'description': forms.Textarea(attrs={'class': 'form-textarea w-full', 'rows': 4}),
-            'category': forms.Select(attrs={'class': 'form-select w-full'}),
-            'standard_lead_time': forms.NumberInput(attrs={'class': 'form-input w-full'}),
-            'pricing_type': forms.Select(attrs={'class': 'form-select w-full'}),
-            'unit_of_measure': forms.TextInput(attrs={'class': 'form-input w-full'}),
-            'status': forms.Select(attrs={'class': 'form-select w-full'}),
-        }
-
-
 class LPO_Form(forms.ModelForm):
     """Form for creating/editing LPOs"""
     
@@ -400,14 +382,3 @@ class AdminProductForm(ProductForm):
             if hasattr(field.widget, 'attrs'):
                 field.widget.attrs['class'] = field.widget.attrs.get('class', '') + ' admin-field'
 
-class AdminProcessForm(ProcessForm):
-    """Extended form for Admins with ALL fields"""
-    class Meta(ProcessForm.Meta):
-        fields = '__all__'
-        
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Add admin-specific field customizations
-        for field_name, field in self.fields.items():
-            if hasattr(field.widget, 'attrs'):
-                field.widget.attrs['class'] = field.widget.attrs.get('class', '') + ' admin-field'

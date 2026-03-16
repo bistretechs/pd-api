@@ -8,6 +8,7 @@ from . import api_deliveries
 from . import api_qc_inspections
 from . import api_lpos
 from . import api_payments
+from . import api_products
 from . import storefront_views
 from . import vendor_portal_views
 
@@ -22,13 +23,23 @@ router.register("compliance-documents", api_views.ComplianceDocumentViewSet, bas
 
 # Catalog / Products
 router.register("products", api_views.ProductViewSet, basename="product")
+
+# Product Catalog — Phase 2 new endpoints
+router.register("print-categories", api_products.PrintCategoryViewSet, basename="print-category")
+router.register("product-categories", api_products.ProductCategoryViewSet, basename="product-category")
+router.register("product-subcategories", api_products.ProductSubCategoryViewSet, basename="product-subcategory")
+router.register("product-families", api_products.ProductFamilyViewSet, basename="product-family")
+router.register("product-tags", api_products.ProductTagViewSet, basename="product-tag")
+router.register("spec-group-library", api_products.SpecGroupLibraryViewSet, basename="spec-group-library")
+router.register("spec-group-library-options", api_products.SpecGroupLibraryOptionViewSet, basename="spec-group-library-option")
+router.register("product-spec-groups", api_products.ProductSpecGroupViewSet, basename="product-spec-group")
+router.register("spec-options", api_products.SpecOptionViewSet, basename="spec-option")
+router.register("spec-option-ranges", api_products.SpecOptionRangeViewSet, basename="spec-option-range")
+router.register("product-compatibility-rules", api_products.ProductCompatibilityRuleViewSet, basename="product-compatibility-rule")
+router.register("product-admin", api_products.ProductAdminViewSet, basename="product-admin")
+router.register("product-catalog", api_products.ProductCatalogViewSet, basename="product-catalog")
 router.register("storefront-products", api_views.StorefrontProductViewSet, basename="storefront-product")
 router.register("product-approvals", api_views.ProductApprovalRequestViewSet, basename="product-approval")
-router.register("property-types", api_views.PropertyTypeViewSet, basename="property-type")
-router.register("property-values", api_views.PropertyValueViewSet, basename="property-value")
-router.register("product-properties", api_views.ProductPropertyViewSet, basename="product-property")
-router.register("quantity-pricing", api_views.QuantityPricingViewSet, basename="quantity-pricing")
-router.register("turnaround-times", api_views.TurnAroundTimeViewSet, basename="turnaround-time")
 router.register("product-images", api_views.ProductImageViewSet, basename="product-image")
 router.register("product-videos", api_views.ProductVideoViewSet, basename="product-video")
 router.register("product-downloads", api_views.ProductDownloadableFileViewSet, basename="product-download")
@@ -40,17 +51,6 @@ router.register("product-legal", api_views.ProductLegalViewSet, basename="produc
 router.register("product-production", api_views.ProductProductionViewSet, basename="product-production")
 router.register("product-change-history", api_views.ProductChangeHistoryViewSet, basename="product-change-history")
 router.register("product-templates", api_views.ProductTemplateViewSet, basename="product-template")
-
-# Costing & Process Configuration
-router.register("processes", api_views.ProcessViewSet, basename="process")
-router.register("process-tiers", api_views.ProcessTierViewSet, basename="process-tier")
-router.register("process-variables", api_views.ProcessVariableViewSet, basename="process-variable")
-router.register("product-variables", api_views.ProductVariableViewSet, basename="product-variable")
-router.register("product-variable-options", api_views.ProductVariableOptionViewSet, basename="product-variable-option")
-router.register("process-vendors", api_views.ProcessVendorViewSet, basename="process-vendor")
-router.register("pricing-tiers", api_views.PricingTierViewSet, basename="pricing-tier")
-router.register("vendor-tier-pricing", api_views.VendorTierPricingViewSet, basename="vendor-tier-pricing")
-router.register("process-variable-ranges", api_views.ProcessVariableRangeViewSet, basename="process-variable-range")
 
 # Quotes / Orders / Jobs
 router.register("quotes", api_views.QuoteViewSet, basename="quote")
@@ -99,7 +99,6 @@ router.register("audit-logs", api_audit_logs.AuditLogViewSet, basename="audit-lo
 router.register("dashboard", api_views.DashboardViewSet, basename="dashboard")
 router.register("analytics", api_analytics.AnalyticsViewSet, basename="analytics")
 router.register("search", api_views.SearchViewSet, basename="search")
-router.register("product-rules", api_views.ProductRuleViewSet, basename="product-rule")
 router.register("material-inventory", api_views.MaterialInventoryViewSet, basename="material-inventory")
 router.register("webhook-subscriptions", api_views.WebhookSubscriptionViewSet, basename="webhook-subscription")
 router.register("webhook-deliveries", api_views.WebhookDeliveryViewSet, basename="webhook-delivery")

@@ -80,8 +80,6 @@ from .models import (
     LPO,
     LPOLineItem,
     SystemAlert,
-    ProcessVariableRange,
-    Process,
     Vendor,
     Payment,
     VendorInvoice,
@@ -5814,16 +5812,15 @@ import json
 
 from .models import (
     Product, ProductCategory, ProductSubCategory, ProductFamily,
-    ProductTag, Vendor, ProductPricing, ProductVariable,
-    ProductVariableOption, ProductImage, ProductVideo,
+    ProductTag, Vendor, ProductImage, ProductVideo,
     ProductDownloadableFile, ProductSEO, ProductReviewSettings,
     ProductFAQ, ProductShipping, ProductLegal, ProductProduction,
     ProductChangeHistory, ActivityLog,
-    Process, ProcessVariable, ProcessTier, QCInspection, Delivery
+    QCInspection, Delivery
 )
 
 from .product_forms import (
-    ProductGeneralInfoForm, ProductPricingForm, ProductSEOForm,
+    ProductGeneralInfoForm, ProductSEOForm,
     ProductShippingForm, ProductLegalForm, ProductProductionForm
 )
 
@@ -8262,7 +8259,7 @@ def vendor_list(request):
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.db.models import Q
-from .models import Process, ProcessTier, ProcessVariable, ProcessVendor, Vendor, VendorTierPricing
+from .models import Vendor
 
 
 @login_required
@@ -9924,7 +9921,8 @@ from .permissions import IsProductionTeam
 from datetime import timedelta
 from decimal import Decimal
 from django.utils import timezone
-from .models import Vendor, PurchaseOrder, VendorInvoice, User
+from .models import Vendor, PurchaseOrder, VendorInvoice
+from django.contrib.auth.models import User
 from django.contrib import messages
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required

@@ -6,7 +6,7 @@ Implements ProductChangeHistory entry creation for ALL product field changes
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.apps import AppConfig
-from clientapp.models import Product, ProductChangeHistory, ProductPricing, ProductSEO
+from clientapp.models import Product, ProductChangeHistory, ProductSEO
 import json
 import logging
 import secrets
@@ -392,15 +392,14 @@ def track_product_changes_pre_save(sender, instance, **kwargs):
                 'short_description': old_instance.short_description,
                 'long_description': old_instance.long_description,
                 'technical_specs': old_instance.technical_specs,
-                'customization_level': old_instance.customization_level,
-                'primary_category': old_instance.primary_category,
-                'sub_category': old_instance.sub_category,
-                'product_family': old_instance.product_family,
+                'pricing_mode': old_instance.pricing_mode,
+                'primary_category': str(old_instance.primary_category_id) if old_instance.primary_category_id else None,
+                'sub_category': str(old_instance.sub_category_id) if old_instance.sub_category_id else None,
+                'product_family': str(old_instance.product_family_id) if old_instance.product_family_id else None,
                 'visibility': old_instance.visibility,
                 'feature_product': old_instance.feature_product,
                 'bestseller_badge': old_instance.bestseller_badge,
                 'new_arrival': old_instance.new_arrival,
-                'base_price': str(old_instance.base_price) if old_instance.base_price else None,
                 'status': old_instance.status,
                 'internal_code': old_instance.internal_code,
             }
@@ -433,9 +432,9 @@ def create_change_history_for_product(sender, instance, created, **kwargs):
     # Check each field for changes
     fields_to_track = [
         'name', 'short_description', 'long_description', 'technical_specs',
-        'customization_level', 'primary_category', 'sub_category', 'product_family',
+        'pricing_mode', 'primary_category', 'sub_category', 'product_family',
         'visibility', 'feature_product', 'bestseller_badge', 'new_arrival',
-        'base_price', 'status', 'internal_code'
+        'status', 'internal_code'
     ]
     
     for field in fields_to_track:
@@ -461,41 +460,7 @@ def create_change_history_for_product(sender, instance, created, **kwargs):
             changed_at=timezone.now()
         )
 
-@receiver(post_save, sender=ProductPricing)
-def create_change_history_for_pricing(sender, instance, created, **kwargs):
-    """
-    Track changes to pricing information
-    """
-    from django.utils import timezone
-    
-    # Get the product's user
-    changed_by = instance.product.updated_by or instance.product.created_by
-    
-    if created:
-        # Log pricing creation
-        ProductChangeHistory.objects.create(
-            product=instance.product,
-            changed_by=changed_by,
-            change_type='update',
-            field_changed='pricing_created',
-            old_value='',
-            new_value='Pricing configuration added',
-            changed_at=timezone.now()
-        )
-    else:
-        # Log pricing updates
-        fields_to_track = ['base_cost', 'return_margin', 'lead_time_value', 'lead_time_unit']
-        for field in fields_to_track:
-            # We could enhance this with pre_save signal to get old values
-            ProductChangeHistory.objects.create(
-                product=instance.product,
-                changed_by=changed_by,
-                change_type='update',
-                field_changed=f'pricing_{field}',
-                old_value='',
-                new_value=str(getattr(instance, field, '')),
-                changed_at=timezone.now()
-            )
+
 
 class ClientAppConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'

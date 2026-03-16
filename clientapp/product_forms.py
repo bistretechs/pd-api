@@ -7,8 +7,8 @@ from django import forms
 from django.forms import inlineformset_factory
 from django.core.exceptions import ValidationError
 from .models import (
-    Product, ProductTag, ProductVariable, ProductVariableOption,
-    ProductImage, ProductPricing, ProductSEO, ProductVideo,
+    Product, ProductTag,
+    ProductImage, ProductSEO, ProductVideo,
     ProductDownloadableFile, ProductFAQ, ProductShipping,
     ProductLegal, ProductProduction, Vendor, ProductCategory,
     ProductSubCategory, ProductFamily
@@ -84,8 +84,7 @@ class ProductGeneralInfoForm(forms.ModelForm):
             'feature_product', 'bestseller_badge', 'new_arrival', 'new_arrival_expires',
             'on_sale_badge', 'unit_of_measure', 'unit_of_measure_custom',
             'weight', 'weight_unit', 'length', 'width', 'height', 'dimension_unit',
-            'warranty', 'country_of_origin', 'internal_notes', 'client_notes',
-            'customization_level'  # Added for pricing tab
+            'warranty', 'country_of_origin', 'internal_notes', 'client_notes'
         ]
         
         widgets = {
@@ -341,74 +340,15 @@ class ProductGeneralInfoForm(forms.ModelForm):
         return cleaned_data
 
 
-# ==================== PRODUCT PRICING FORM ====================
+# ==================== EXPORT ALL FORMS ====================
 
-class ProductPricingForm(forms.ModelForm):
-    """Form for ProductPricing model"""
-    
-    class Meta:
-        model = ProductPricing
-        fields = [
-            'pricing_model', 'base_cost', 'price_display',
-            'default_margin', 'minimum_margin', 'minimum_order_value',
-            'production_method', 'alternative_vendors', 'minimum_quantity',
-            'rush_available', 'rush_lead_time_value', 'rush_lead_time_unit',
-            'rush_upcharge', 'enable_conditional_logic', 'enable_conflict_detection'
-        ]
-        
-        widgets = {
-            'pricing_model': forms.RadioSelect(),
-            'base_cost': forms.NumberInput(attrs={
-                'class': 'flex-1 px-3 py-2 border border-gray-300 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                'step': '0.01',
-                'placeholder': '15.00'
-            }),
-            'price_display': forms.Select(attrs={
-                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
-            }),
-            'default_margin': forms.NumberInput(attrs={
-                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                'step': '0.01',
-                'min': '0',
-                'max': '100'
-            }),
-            'minimum_margin': forms.NumberInput(attrs={
-                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                'step': '0.01',
-                'min': '0',
-                'max': '100'
-            }),
-            'minimum_order_value': forms.NumberInput(attrs={
-                'class': 'flex-1 px-3 py-2 border border-gray-300 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500'
-            }),
-            'production_method': forms.Select(attrs={
-                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
-            }),
-            'alternative_vendors': forms.SelectMultiple(attrs={
-                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                'size': '3'
-            }),
-            'minimum_quantity': forms.NumberInput(attrs={
-                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                'min': '1'
-            }),
-            'rush_available': forms.CheckboxInput(attrs={'class': 'mr-3 rounded text-blue-600'}),
-            'rush_lead_time_value': forms.NumberInput(attrs={
-                'class': 'w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                'min': '1'
-            }),
-            'rush_lead_time_unit': forms.Select(attrs={
-                'class': 'flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
-            }),
-            'rush_upcharge': forms.NumberInput(attrs={
-                'class': 'flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                'step': '1',
-                'min': '0'
-            }),
-            'enable_conditional_logic': forms.CheckboxInput(attrs={'class': 'mr-2 rounded text-blue-600'}),
-            'enable_conflict_detection': forms.CheckboxInput(attrs={'class': 'mr-2 rounded text-blue-600'}),
-        }
-
+__all__ = [
+    'ProductGeneralInfoForm',
+    'ProductSEOForm',
+    'ProductShippingForm',
+    'ProductLegalForm',
+    'ProductProductionForm',
+]
 
 class ProductSEOForm(forms.ModelForm):
     """Form for SEO & E-commerce Tab"""
@@ -635,7 +575,6 @@ class ProductProductionForm(forms.ModelForm):
 
 __all__ = [
     'ProductGeneralInfoForm',
-    'ProductPricingForm',
     'ProductSEOForm',
     'ProductShippingForm',
     'ProductLegalForm',

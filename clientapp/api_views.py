@@ -48,28 +48,12 @@ from .models import (
     QuickBooksToken,
     Notification,
     ActivityLog,
-    PropertyType,
-    PropertyValue,
-    ProductProperty,
-    QuantityPricing,
-    TurnAroundTime,
     SystemSetting,
-    # Costing / process models
-    Process,
-    ProcessTier,
-    ProcessVariable,
-    ProductVariable,
-    ProductVariableOption,
-    ProcessVendor,
-    PricingTier,
-    VendorTierPricing,
-    ProcessVariableRange,
     # Product metadata
     ProductImage,
     ProductVideo,
     ProductDownloadableFile,
     ProductSEO,
-    ProductPricing,
     ProductReviewSettings,
     ProductFAQ,
     ProductShipping,
@@ -89,7 +73,6 @@ from .models import (
     LPOLineItem,
     SystemAlert,
     ProductionUpdate,
-    resolve_unit_price,
     # Storefront models
     Customer,
     CustomerAddress,
@@ -115,7 +98,6 @@ from .models import (
     ProductReview,
     ShippingMethod,
     PaymentTransaction,
-    ProductRule,
     TimelineEvent,
     DesignSession,
     DesignVersion,
@@ -128,7 +110,6 @@ from .models import (
     Adjustment,
     WebhookSubscription,
     # Production Team Portal models
-    ApprovalThreshold,
     InvoiceDispute,
     InvoiceDisputeResponse,
     JobProgressUpdate,
@@ -158,6 +139,7 @@ from .models import (
     JobFile,
     DocumentShare,
     JobMessage,
+    ApprovalThreshold,
 )
 from .api_serializers import (
     LeadSerializer,
@@ -180,21 +162,7 @@ from .api_serializers import (
     MaterialSubstitutionRequestSerializer,
     NotificationSerializer,
     ActivityLogSerializer,
-    PropertyTypeSerializer,
-    PropertyValueSerializer,
-    ProductPropertySerializer,
-    QuantityPricingSerializer,
-    TurnAroundTimeSerializer,
     SystemSettingSerializer,
-    ProcessSerializer,
-    ProcessTierSerializer,
-    ProcessVariableSerializer,
-    ProductVariableSerializer,
-    ProductVariableOptionSerializer,
-    ProcessVendorSerializer,
-    PricingTierSerializer,
-    VendorTierPricingSerializer,
-    ProcessVariableRangeSerializer,
     ProductImageMetadataSerializer,
     ProductVideoMetadataSerializer,
     ProductDownloadableFileSerializer,
@@ -246,7 +214,6 @@ from .api_serializers import (
     GroupSerializer,
     PermissionSerializer,
 
-    ProductRuleSerializer,
     TimelineEventSerializer,
     DesignSessionSerializer,
     DesignVersionSerializer,
@@ -1315,7 +1282,7 @@ class QuoteViewSet(viewsets.ModelViewSet):
                 created_by=None,
             )
 
-        unit_price = resolve_unit_price(product, quantity=quantity)
+        unit_price = product.base_price or Decimal('0')
 
         quote = Quote.objects.create(
             client=None,
@@ -3169,229 +3136,6 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(invoice)
         return Response({'detail': 'Invoice marked as paid', 'invoice': serializer.data})
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
-class PropertyTypeViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = PropertyType.objects.all()
-    serializer_class = PropertyTypeSerializer
-    permission_classes = [AllowAny]
-    filterset_fields = ["property_type", "affects_price"]
-    search_fields = ["name", "description"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
-class PropertyValueViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = PropertyValue.objects.select_related("property_type").all()
-    serializer_class = PropertyValueSerializer
-    permission_classes = [AllowAny]
-    filterset_fields = ["property_type", "is_active"]
-    search_fields = ["value", "description"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
-class ProductPropertyViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = ProductProperty.objects.select_related("product", "property_value", "property_value__property_type").all()
-    serializer_class = ProductPropertySerializer
-    permission_classes = [AllowAny]
-    filterset_fields = ["product", "property_value__property_type", "is_available"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['API']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['API']))
-class QuantityPricingViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = QuantityPricing.objects.select_related("product").all()
-    serializer_class = QuantityPricingSerializer
-    permission_classes = [AllowAny]
-    filterset_fields = ["product"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['System & Configuration']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['System & Configuration']))
-class TurnAroundTimeViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = TurnAroundTime.objects.select_related("product").all()
-    serializer_class = TurnAroundTimeSerializer
-    permission_classes = [AllowAny]
-    filterset_fields = ["product", "is_available", "is_default"]
-
-
-# costing process viewsets
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class ProcessViewSet(viewsets.ModelViewSet):
-    queryset = Process.objects.all()
-    serializer_class = ProcessSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["pricing_type", "category", "status"]
-    search_fields = ["process_id", "process_name", "description"]
-
-    @decorators.action(detail=False, methods=["post"], permission_classes=[IsAuthenticated, IsProductionTeam | IsAdmin])
-    def bulk_update_pricing(self, request):
-        """
-        Bulk update pricing for processes.
-        
-        Request body:
-        {
-            "process_ids": [1, 2, 3],  # Optional: specific processes
-            "category": "printing",  # Optional: filter by category
-            "adjustment_type": "percentage",  # "percentage" or "fixed"
-            "adjustment_value": 10,  # 10% increase or fixed amount
-            "apply_to": "tiers"  # "tiers", "base_cost", or "both"
-        }
-        """
-        from decimal import Decimal
-        
-        process_ids = request.data.get("process_ids", [])
-        category = request.data.get("category")
-        adjustment_type = request.data.get("adjustment_type", "percentage")
-        adjustment_value = Decimal(str(request.data.get("adjustment_value", 0)))
-        apply_to = request.data.get("apply_to", "tiers")
-        
-        # Build queryset
-        queryset = Process.objects.all()
-        if process_ids:
-            queryset = queryset.filter(id__in=process_ids)
-        if category:
-            queryset = queryset.filter(category=category)
-        
-        updated_count = 0
-        
-        for process in queryset:
-            if apply_to in ["tiers", "both"]:
-                # Update tiers
-                for tier in process.tiers.all():
-                    if adjustment_type == "percentage":
-                        tier.cost = tier.cost * (1 + adjustment_value / 100)
-                    else:
-                        tier.cost = tier.cost + adjustment_value
-                    tier.save()
-            
-            if apply_to in ["base_cost", "both"] and hasattr(process, 'base_cost'):
-                # Update base cost
-                if adjustment_type == "percentage":
-                    process.base_cost = process.base_cost * (1 + adjustment_value / 100)
-                else:
-                    process.base_cost = process.base_cost + adjustment_value
-                process.save()
-            
-            updated_count += 1
-        
-        return Response({
-            "detail": f"Updated pricing for {updated_count} process(es)",
-            "updated_count": updated_count,
-        })
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class ProcessTierViewSet(viewsets.ModelViewSet):
-    queryset = ProcessTier.objects.select_related("process").all()
-    serializer_class = ProcessTierSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["process", "tier_number"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class ProcessVariableViewSet(viewsets.ModelViewSet):
-    queryset = ProcessVariable.objects.select_related("process").all()
-    serializer_class = ProcessVariableSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["process", "variable_type"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class ProductVariableViewSet(viewsets.ModelViewSet):
-    queryset = ProductVariable.objects.select_related("product").all()
-    serializer_class = ProductVariableSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["product", "variable_type", "pricing_type", "is_active"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class ProductVariableOptionViewSet(viewsets.ModelViewSet):
-    queryset = ProductVariableOption.objects.select_related("variable").all()
-    serializer_class = ProductVariableOptionSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["variable", "is_active", "is_default"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class ProcessVendorViewSet(viewsets.ModelViewSet):
-    queryset = ProcessVendor.objects.select_related("process").all()
-    serializer_class = ProcessVendorSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["process", "priority"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class PricingTierViewSet(viewsets.ModelViewSet):
-    queryset = PricingTier.objects.select_related("process").all()
-    serializer_class = PricingTierSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["process"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class VendorTierPricingViewSet(viewsets.ModelViewSet):
-    queryset = VendorTierPricing.objects.select_related("process_vendor").all()
-    serializer_class = VendorTierPricingSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["process_vendor"]
-
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Pricing & Costing']))
-class ProcessVariableRangeViewSet(viewsets.ModelViewSet):
-    queryset = ProcessVariableRange.objects.select_related("variable").all()
-    serializer_class = ProcessVariableRangeSerializer
-    permission_classes = [IsAuthenticated, IsProductionTeam | IsAdmin]
-    filterset_fields = ["variable"]
 
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['Notifications & Logging']))
@@ -5306,7 +5050,7 @@ class CartViewSet(viewsets.ModelViewSet):
         
         try:
             product = Product.objects.get(id=product_id)
-            unit_price = resolve_unit_price(product, quantity) if hasattr(product, 'base_price') else product.base_price
+            unit_price = product.base_price or Decimal('0')
             
             cart_item, created = CartItem.objects.get_or_create(
                 cart=cart,
@@ -5856,17 +5600,6 @@ class PreflightView(APIView):
         return Response(result)
 
 
-
-@method_decorator(name='list', decorator=swagger_auto_schema(tags=['Product Catalog']))
-@method_decorator(name='create', decorator=swagger_auto_schema(tags=['Product Catalog']))
-@method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Product Catalog']))
-@method_decorator(name='update', decorator=swagger_auto_schema(tags=['Product Catalog']))
-@method_decorator(name='partial_update', decorator=swagger_auto_schema(tags=['Product Catalog']))
-@method_decorator(name='destroy', decorator=swagger_auto_schema(tags=['Product Catalog']))
-class ProductRuleViewSet(viewsets.ModelViewSet):
-    queryset = ProductRule.objects.all()
-    serializer_class = ProductRuleSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
 
 @method_decorator(name='list', decorator=swagger_auto_schema(tags=['Timeline & Tracking']))
 @method_decorator(name='retrieve', decorator=swagger_auto_schema(tags=['Timeline & Tracking']))

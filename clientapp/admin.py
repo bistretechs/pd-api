@@ -6,16 +6,15 @@ from .models import (
     Lead, Client, ClientContact, BrandAsset, ComplianceDocument,
     Quote, ActivityLog, ProductionUpdate, Notification,
     Job, JobProduct, JobAttachment, Product,
-    ProductImage, PropertyType, PropertyValue,
-    ProductProperty, QuantityPricing, ProductTemplate,
-    TurnAroundTime, ProductCategory, ProductSubCategory, ProductFamily, Vendor,
-    ProductTag, ProductPricing, ProductVariable, ProductVariableOption,
+    ProductImage, ProductTemplate,
+    ProductCategory, ProductSubCategory, ProductFamily, Vendor,
+    ProductTag,
     ProductVideo, ProductDownloadableFile, ProductSEO,
     ProductReviewSettings, ProductFAQ, ProductShipping, ProductLegal,
     ProductProduction, ProductChangeHistory,
-    # Process-related models for formula-based pricing
-    Process, ProcessVariable, ProcessVariableRange, ProcessTier,
-    ProcessVendor, PurchaseOrder
+    PurchaseOrder,
+    PrintCategory, SpecGroupLibrary, SpecGroupLibraryOption,
+    ProductSpecGroup, SpecOption, SpecOptionRange, ProductCompatibilityRule,
 )
 
 # ---------------------- LEAD ----------------------
@@ -124,14 +123,6 @@ class QuoteAdmin(admin.ModelAdmin):
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
 
-
-@admin.register(TurnAroundTime)
-class TurnAroundTimeAdmin(admin.ModelAdmin):
-    list_display = ('product', 'name', 'business_days', 'price_modifier', 'is_default', 'is_available', 'display_order')
-    list_editable = ('is_default', 'is_available', 'display_order')
-    search_fields = ('product__name', 'name')
-    list_filter = ('is_default', 'is_available')
-    ordering = ('product', 'display_order', 'business_days')
 
 
 @admin.register(ProductionUpdate)
@@ -278,52 +269,6 @@ class ProductTagAdmin(admin.ModelAdmin):
 # ==================== INLINE ADMINS - MUST BE DEFINED BEFORE USE ====================
 
 # Inline admins for related models
-class ProductPricingInline(admin.StackedInline):
-    model = ProductPricing
-    extra = 0
-    fieldsets = (
-        ('Base Pricing', {
-            'fields': (
-                'pricing_model', 'base_cost', 'price_display',
-                'default_margin', 'minimum_margin', 'minimum_order_value'
-            )
-        }),
-        ('Production & Vendor', {
-            'fields': (
-                'lead_time_value', 'lead_time_unit', 'production_method',
-                'primary_vendor', 'alternative_vendors', 'minimum_quantity'
-            )
-        }),
-        ('Rush Production', {
-            'fields': (
-                'rush_available', 'rush_lead_time_value',
-                'rush_lead_time_unit', 'rush_upcharge'
-            ),
-            'classes': ('collapse',)
-        }),
-        ('Advanced', {
-            'fields': ('enable_conditional_logic', 'enable_conflict_detection'),
-            'classes': ('collapse',)
-        }),
-    )
-    filter_horizontal = ['alternative_vendors']
-
-
-# IMPORTANT: Define ProductVariableOptionInline BEFORE ProductVariableInline
-class ProductVariableOptionInline(admin.TabularInline):
-    model = ProductVariableOption
-    extra = 1
-    fields = ['name', 'display_order', 'is_default', 'price_modifier', 'is_active']
-    ordering = ['display_order']
-
-
-class ProductVariableInline(admin.TabularInline):
-    model = ProductVariable
-    extra = 0
-    fields = ['name', 'display_order', 'variable_type', 'pricing_type', 'is_active']
-    ordering = ['display_order']
-
-
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
@@ -520,8 +465,6 @@ class ProductAdmin(admin.ModelAdmin):
     )
     
     inlines = [
-        ProductPricingInline,
-        ProductVariableInline,
         ProductImageInline,
         ProductVideoInline,
         ProductDownloadableFileInline,
@@ -561,40 +504,6 @@ class ProductAdmin(admin.ModelAdmin):
             change_type='created' if not change else 'updated',
             notes=f"Product {'created' if not change else 'updated'} via admin"
         )
-
-
-# ==================== PRODUCT VARIABLE ADMIN ====================@admin.register(ProductVariable)
-class ProductVariableAdmin(admin.ModelAdmin):
-    list_display = ['name', 'product', 'display_order', 'variable_type', 'pricing_type', 'is_active']
-    list_filter = ['variable_type', 'pricing_type', 'is_active', 'product__primary_category']
-    search_fields = ['name', 'product__name', 'product__internal_code']
-    list_editable = ['display_order', 'is_active']
-    ordering = ['product', 'display_order']
-    
-    fieldsets = (
-        (None, {
-            'fields': ('product', 'name', 'display_order', 'variable_type', 'pricing_type', 'is_active')
-        }),
-        ('Conditional Logic', {
-            'fields': ('show_when_variable', 'show_when_option'),
-            'classes': ('collapse',)
-        }),
-    )
-    
-    inlines = [ProductVariableOptionInline]
-
-
-@admin.register(ProductVariableOption)
-class ProductVariableOptionAdmin(admin.ModelAdmin):
-    list_display = ['name', 'variable', 'product_name', 'display_order', 'is_default', 'price_modifier', 'is_active']
-    list_filter = ['is_default', 'is_active', 'variable__product__primary_category']
-    search_fields = ['name', 'variable__name', 'variable__product__name']
-    list_editable = ['display_order', 'is_default', 'is_active']
-    ordering = ['variable', 'display_order']
-    
-    def product_name(self, obj):
-        return obj.variable.product.name
-    product_name.short_description = 'Product'
 
 
 @admin.register(ProductImage)
@@ -831,152 +740,3 @@ class ProductTemplateAdmin(admin.ModelAdmin):
         return f"-"
     usage_count.short_description = 'Uses'
 
-# ================================
-# PROCESS MANAGEMENT ADMINS (FORMULA-BASED PRICING)
-# ================================
-
-@admin.register(Process)
-class ProcessAdmin(admin.ModelAdmin):
-    list_display = [
-        'process_id', 'process_name', 'pricing_type', 'category', 
-        'status', 'standard_lead_time', 'created_at'
-    ]
-    list_filter = ['pricing_type', 'category', 'status', 'created_at']
-    search_fields = ['process_id', 'process_name', 'description']
-    readonly_fields = ['process_id', 'created_at', 'updated_at']
-    
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('process_id', 'process_name', 'description', 'category')
-        }),
-        ('Pricing Configuration', {
-            'fields': ('pricing_type', 'unit_of_measure', 'standard_lead_time')
-        }),
-        ('Approval Settings', {
-            'fields': ('approval_type', 'approval_margin_threshold')
-        }),
-        ('Metadata', {
-            'fields': ('status', 'created_by', 'created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related('created_by')
-
-
-@admin.register(ProcessVariable)
-class ProcessVariableAdmin(admin.ModelAdmin):
-    list_display = [
-        'variable_name', 'process', 'variable_type', 'unit', 
-        'min_value', 'max_value', 'order'
-    ]
-    list_filter = ['variable_type', 'process', 'process__pricing_type']
-    search_fields = ['variable_name', 'process__process_name', 'description']
-    ordering = ['process', 'order']
-    
-    fieldsets = (
-        ('Variable Details', {
-            'fields': ('process', 'variable_name', 'variable_type', 'unit')
-        }),
-        ('Validation', {
-            'fields': ('min_value', 'max_value', 'default_value')
-        }),
-        ('Display', {
-            'fields': ('order', 'description')
-        }),
-    )
-
-
-@admin.register(ProcessVariableRange)
-class ProcessVariableRangeAdmin(admin.ModelAdmin):
-    list_display = [
-        'variable', 'min_value', 'max_value', 'price', 'rate', 'order'
-    ]
-    list_filter = ['variable__process', 'variable__variable_type']
-    search_fields = ['variable__variable_name', 'variable__process__process_name']
-    ordering = ['variable', 'order', 'min_value']
-    
-    fieldsets = (
-        ('Range Details', {
-            'fields': ('variable', 'order')
-        }),
-        ('Value Range', {
-            'fields': ('min_value', 'max_value')
-        }),
-        ('Pricing', {
-            'fields': ('price', 'rate'),
-            'description': 'Cost calculation: (price × rate) × quantity'
-        }),
-    )
-    
-    def formfield_for_decimalfield(self, db_field, request, **kwargs):
-        if db_field.name in ['min_value', 'max_value']:
-            kwargs['max_digits'] = 10
-            kwargs['decimal_places'] = 2
-        elif db_field.name == 'rate':
-            kwargs['max_digits'] = 10
-            kwargs['decimal_places'] = 4
-        else:
-            kwargs['max_digits'] = 10
-            kwargs['decimal_places'] = 2
-        return super().formfield_for_decimalfield(db_field, request, **kwargs)
-
-
-@admin.register(ProcessTier)
-class ProcessTierAdmin(admin.ModelAdmin):
-    list_display = [
-        'process', 'tier_number', 'quantity_from', 'quantity_to', 
-        'cost', 'price', 'margin_percentage'
-    ]
-    list_filter = ['process', 'process__pricing_type']
-    search_fields = ['process__process_name', 'process__process_id']
-    ordering = ['process', 'tier_number']
-    
-    readonly_fields = ['per_unit_price', 'margin_amount', 'margin_percentage']
-
-
-@admin.register(ProcessVendor)
-class ProcessVendorAdmin(admin.ModelAdmin):
-    list_display = [
-        'process', 'vendor_name', 'vendor_id',
-        'priority', 'rush_enabled'
-    ]
-    list_filter = ['priority', 'rush_enabled', 'process']
-    search_fields = ['vendor_name', 'vendor_id', 'process__process_name']
-    ordering = ['priority', '-vps_score']
-
-
-# ================================
-# PRODUCT PRICING ADMIN (INTEGRATED)
-# ================================
-
-@admin.register(ProductPricing)
-class ProductPricingAdmin(admin.ModelAdmin):
-    list_display = [
-        'product', 'base_cost', 'pricing_model', 'default_margin'
-    ]
-    list_filter = ['pricing_model']
-    search_fields = ['product__name', 'product__internal_code']
-    
-    fieldsets = (
-        ('Product', {
-            'fields': ('product',)
-        }),
-        ('Base Pricing', {
-            'fields': ('base_cost', 'pricing_model', 'default_margin', 'minimum_margin', 'minimum_order_value')
-        }),
-        ('Production & Vendor', {
-            'fields': ('lead_time_value', 'lead_time_unit', 'production_method', 'primary_vendor', 'alternative_vendors', 'minimum_quantity')
-        }),
-        ('Rush Production', {
-            'fields': ('rush_available', 'rush_lead_time_value', 'rush_lead_time_unit', 'rush_upcharge'),
-            'classes': ('collapse',)
-        }),
-        ('Advanced Settings', {
-            'fields': ('enable_conditional_logic', 'enable_conflict_detection'),
-            'classes': ('collapse',)
-        }),
-    )
-    filter_horizontal = ['alternative_vendors']

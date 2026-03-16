@@ -11,9 +11,11 @@ from django.core.paginator import Paginator
 import json
 from datetime import datetime, timedelta
 
+from django.contrib.auth.models import User
+
 from .models import (
-    Client, Lead, Quote, Product, Job, Vendor, Process, JobAttachment,
-    Notification, ActivityLog, User, LPO, Payment, ProductionUpdate,
+    Client, Lead, Quote, Product, Job, Vendor, JobAttachment,
+    Notification, ActivityLog, LPO, Payment, ProductionUpdate,
     ComplianceDocument, BrandAsset
 )
 
@@ -635,8 +637,8 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.db.models import Q
 from django.urls import reverse
 
-from .models import Vendor, Process
-from .forms import VendorForm, ProcessForm
+from .models import Vendor
+from .forms import VendorForm
 
 
 # ==================== VENDORS CRUD ====================
