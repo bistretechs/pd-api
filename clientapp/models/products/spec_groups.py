@@ -314,6 +314,19 @@ class PriceCalculationResult:
         return ((self.final_selling_price - self.final_vendor_cost) / self.final_selling_price * 100).quantize(Decimal('0.01'))
 
 
+def _is_group_visible(group, selections: dict) -> bool:
+    if group.parent_option_id is None:
+        return True
+    trigger_id = group.parent_option_id
+    for value in selections.values():
+        if isinstance(value, list):
+            if trigger_id in value:
+                return True
+        elif value == trigger_id:
+            return True
+    return False
+
+
 def calculate_product_price(
     product: 'clientapp.Product',
     selections: dict,
@@ -337,6 +350,8 @@ def calculate_product_price(
     )
 
     for group in active_groups:
+        if not _is_group_visible(group, selections):
+            continue
         group_selection = selections.get(group.id)
         group_type = group.group_type
 
@@ -348,9 +363,15 @@ def calculate_product_price(
             if option is None:
                 result.errors.append(f'Invalid quantity option for "{group.get_display_label()}".')
                 continue
-            result.selling_price += option.selling_price or Decimal('0')
-            result.vendor_cost += option.vendor_cost or Decimal('0')
-            result.line_items.append({'group': group.name, 'option': option.name, 'sell': option.selling_price, 'cost': option.vendor_cost})
+            sell = option.selling_price or Decimal('0')
+            cost = option.vendor_cost or Decimal('0')
+            result.selling_price += sell
+            result.vendor_cost += cost
+            result.line_items.append({
+                'description': f'{group.name}: {option.name}',
+                'selling_price': str(sell),
+                'vendor_cost': str(cost),
+            })
 
         elif group_type in ('single_select_modifier', 'multi_select_modifier'):
             selected_ids = group_selection if isinstance(group_selection, list) else ([group_selection] if group_selection else [])
@@ -362,9 +383,15 @@ def calculate_product_price(
                 if option is None:
                     result.errors.append(f'Invalid option selected for "{group.get_display_label()}".')
                     continue
-                result.selling_price += option.selling_price_modifier or Decimal('0')
-                result.vendor_cost += option.vendor_cost_modifier or Decimal('0')
-                result.line_items.append({'group': group.name, 'option': option.name, 'sell': option.selling_price_modifier, 'cost': option.vendor_cost_modifier})
+                sell = option.selling_price_modifier or Decimal('0')
+                cost = option.vendor_cost_modifier or Decimal('0')
+                result.selling_price += sell
+                result.vendor_cost += cost
+                result.line_items.append({
+                    'description': f'{group.name}: {option.name}',
+                    'selling_price': str(sell),
+                    'vendor_cost': str(cost),
+                })
 
         elif group_type == 'numeric_input':
             if group_selection is None:
@@ -380,7 +407,11 @@ def calculate_product_price(
             cost = matching_range.vendor_cost_base + input_value * matching_range.vendor_rate_per_unit
             result.selling_price += sell
             result.vendor_cost += cost
-            result.line_items.append({'group': group.name, 'value': input_value, 'sell': sell, 'cost': cost})
+            result.line_items.append({
+                'description': f'{group.name}: {input_value}',
+                'selling_price': str(sell),
+                'vendor_cost': str(cost),
+            })
 
         elif group_type == 'dimension_input':
             if group_selection is None:
@@ -397,7 +428,11 @@ def calculate_product_price(
             cost = max(group.min_vendor_cost or Decimal('0'), sqm * (group.vendor_rate_per_sqm or Decimal('0')))
             result.selling_price += sell
             result.vendor_cost += cost
-            result.line_items.append({'group': group.name, 'dimensions': f'{width}×{height} {group.dim_unit}', 'sqm': sqm, 'sell': sell, 'cost': cost})
+            result.line_items.append({
+                'description': f'{group.name}: {width}×{height} {group.dim_unit}',
+                'selling_price': str(sell),
+                'vendor_cost': str(cost),
+            })
 
         elif group_type == 'multiplier':
             if group_selection is None:
