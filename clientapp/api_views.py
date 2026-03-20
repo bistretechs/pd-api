@@ -1578,6 +1578,13 @@ class QuoteViewSet(viewsets.ModelViewSet):
                 {"detail": "Quote must be costed by PT before sending to customer"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # Block sending a zero-value quote to the customer — AM must set selling prices first
+        if not quote.total_amount or quote.total_amount <= 0:
+            return Response(
+                {"detail": "Cannot send a quote with a KES 0 total to the customer. Please set selling prices on all line items first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         quote.status = "Sent to Customer"
         quote.production_status = "sent_to_client"
