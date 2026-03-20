@@ -1,3 +1,5 @@
+import random
+import string
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -95,20 +97,17 @@ class Lead(models.Model):
     
     def save(self, *args, **kwargs):
         if not self.lead_id:
-            # Generate lead ID: format-LD-YYYY-XX
-            year = timezone.now().year
-            last_lead = Lead.objects.filter(
-                lead_id__startswith=f'LD-{year}-'
-            ).order_by('lead_id').last()
-            
-            if last_lead:
-                last_number = int(last_lead.lead_id.split('-')[-1])
-                new_number = last_number + 1
-            else:
-                new_number = 1
-            
-            self.lead_id = f'LD-{year}-{new_number:03d}'
-        
+            now = timezone.now()
+            month_initial = now.strftime('%b').upper()
+            year_initial = now.strftime('%y')
+            prefix = f'PDLD-{month_initial}{year_initial}-'
+            while True:
+                random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                candidate = f'{prefix}{random_suffix}'
+                if not Lead.objects.filter(lead_id=candidate).exists():
+                    self.lead_id = candidate
+                    break
+
         super().save(*args, **kwargs)
 
 

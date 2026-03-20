@@ -484,7 +484,8 @@ def get_staff_performance():
     """
     Calculate staff performance metrics
     """
-    from .models import Quote, LPO, User
+    from .models import Quote, LPO
+    from django.contrib.auth.models import User
     from django.db.models import Sum, Count, Avg, Q
     from datetime import date, timedelta
     

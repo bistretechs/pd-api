@@ -289,17 +289,30 @@ class LeadViewSet(viewsets.ModelViewSet):
         
         return queryset
 
+    @decorators.action(detail=True, methods=["post"], url_path="mark-contacted")
+    def mark_contacted(self, request, pk=None):
+        lead = self.get_object()
+        if lead.status != "New":
+            return Response(
+                {"detail": f"Lead must be in 'New' status to mark as contacted. Current status: {lead.status}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        lead.status = "Contacted"
+        lead.save(update_fields=["status", "updated_at"])
+        serializer = self.get_serializer(lead)
+        return Response({"detail": "Lead marked as contacted", "lead": serializer.data})
+
     @decorators.action(detail=True, methods=["post"])
     def qualify(self, request, pk=None):
         """
-        Move a lead from 'New' to 'Qualified' status.
+        Move a lead from 'New' or 'Contacted' to 'Qualified' status.
         AM can use this as a quick action to mark lead as ready for quote creation.
         """
         lead = self.get_object()
         
-        if lead.status != 'New':
+        if lead.status not in ("New", "Contacted"):
             return Response(
-                {"detail": f"Lead can only be qualified from 'New' status. Current status: {lead.status}"},
+                {"detail": f"Lead can only be qualified from 'New' or 'Contacted' status. Current status: {lead.status}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -318,6 +331,28 @@ class LeadViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(lead)
         return Response({
             "detail": "Lead qualified successfully",
+            "lead": serializer.data
+        })
+
+    @decorators.action(detail=True, methods=["post"], url_path="mark-lost")
+    def mark_lost(self, request, pk=None):
+        """
+        Mark a lead as Lost. Can be done from any non-terminal status.
+        """
+        lead = self.get_object()
+
+        if lead.status in ("Converted", "Lost"):
+            return Response(
+                {"detail": f"Lead is already {lead.status} and cannot be marked as lost."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        lead.status = "Lost"
+        lead.save(update_fields=["status", "updated_at"])
+
+        serializer = self.get_serializer(lead)
+        return Response({
+            "detail": "Lead marked as lost",
             "lead": serializer.data
         })
 
